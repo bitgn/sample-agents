@@ -1,2 +1,0 @@
---extra-index-url https://buf.build/gen/python
-bitgn-api-connectrpc-python==0.8.1.1.20260311140232+3c669d475404
