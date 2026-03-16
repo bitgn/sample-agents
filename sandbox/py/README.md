@@ -2,11 +2,12 @@
 
 Runnable Python sample for the `bitgn/sandbox` benchmark.
 
-`harness_core` owns Buf publication and updates the generated SDK pins in this
-folder via `make sdk-python`.
+You will need to provide your own `OPENAI_API_KEY` (or switch OpenAI client to a provider of your choice)
 
 Run it with:
 
 ```bash
 uv run python main.py
 ```
+
+It should print something like that:
