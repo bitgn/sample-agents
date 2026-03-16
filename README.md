@@ -1,12 +1,12 @@
 # BitGN Platform Samples
 
-This repository contains sample agents for the [BitGN Platform](https://bitgn.com).
+This repository contains sample agents for the [BitGN Platform](https://bitgn.com). Sample agents use SDKs that are audo-generated from the [BitGN Schema](https://buf.build/bitgn/api).
 
+## Sandbox
 
+Sandbox is a test environment with a few sample tasks, where an agent helps to manage personal information system within Obsidian Vault. Running this environment doesn't require BitGN API Key, so it is a goot start.
 
-Sample agents use SDKs that are audo-generated from the [BitGN Schema](https://buf.build/bitgn/api).
-
-- [Sandbox Agent (Python)](sandbox/py)
+Source code: [Sandbox Agent (Python)](sandbox/py)
 
 [![BitGN Sandbox intro](res/bitgn_sandbox_video.png)](https://www.youtube.com/watch?v=18ZWfSbTs8M)
 
