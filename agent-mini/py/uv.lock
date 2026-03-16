@@ -4,14 +4,14 @@ requires-python = ">=3.14"
 
 [[package]]
 name = "bitgn-api-connectrpc-python"
-version = "0.8.1.1.20260311160757+69ba37c4717d"
+version = "0.8.1.1.20260311165944+51718bb82129"
 source = { registry = "https://buf.build/gen/python" }
 dependencies = [
     { name = "bitgn-api-protocolbuffers-python" },
     { name = "connect-python" },
 ]
 wheels = [
-    { url = "https://buf.build/gen/python/bitgn-api-connectrpc-python/bitgn_api_connectrpc_python-0.8.1.1.20260311160757+69ba37c4717d-py3-none-any.whl" },
+    { url = "https://buf.build/gen/python/bitgn-api-connectrpc-python/bitgn_api_connectrpc_python-0.8.1.1.20260311165944+51718bb82129-py3-none-any.whl" },
 ]
 
 [[package]]
@@ -123,7 +123,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "bitgn-api-connectrpc-python", specifier = "==0.8.1.1.20260311160757+69ba37c4717d" }]
+requires-dist = [{ name = "bitgn-api-connectrpc-python", specifier = "==0.8.1.1.20260311165944+51718bb82129" }]
 
 [[package]]
 name = "types-protobuf"
