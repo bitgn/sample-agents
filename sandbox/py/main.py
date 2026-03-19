@@ -9,7 +9,15 @@ from agent import run_agent
 
 BITGN_URL = os.getenv("BENCHMARK_HOST") or "https://api.bitgn.com"
 
-MODEL_ID = "nvidia/nemotron-3-super-120b-a12b:free"
+# MODEL_ID = "qwen3.5:9b"
+MODEL_ID = "anthropic/claude-sonnet-4.6"
+
+# U7: Model-specific configurations
+MODEL_CONFIGS = {
+    "qwen3.5:9b": {"max_completion_tokens": 512},
+    "qwen3.5:14b": {"max_completion_tokens": 512},
+}
+
 
 CLI_RED = "\x1B[31m"
 CLI_GREEN = "\x1B[32m"
@@ -44,7 +52,8 @@ def main() -> None:
             print("Task:", trial.instruction)
 
             try:
-                run_agent(MODEL_ID,trial.harness_url, trial.instruction)
+                run_agent(MODEL_ID, trial.harness_url, trial.instruction,
+                          model_config=MODEL_CONFIGS.get(MODEL_ID))
             except Exception as e:
                 print(e)
 
