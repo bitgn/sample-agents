@@ -9,8 +9,8 @@ from agent import run_agent
 
 BITGN_URL = os.getenv("BENCHMARK_HOST") or "https://api.bitgn.com"
 
-# MODEL_ID = "anthropic/claude-sonnet-4.6"
-MODEL_ID = "qwen3.5:9b"
+MODEL_ID = "anthropic/claude-sonnet-4.6"
+# MODEL_ID = "qwen3.5:9b"
 
 # U7: Model-specific configurations
 MODEL_CONFIGS = {
