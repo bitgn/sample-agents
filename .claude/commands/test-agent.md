@@ -5,7 +5,7 @@
 Запусти команду:
 
 ```
-uv run python sandbox/py/main.py
+cd sandbox/py && uv run python main.py
 ```
 
 Дождись завершения всех задач. Сохрани полный stdout — он нужен для анализа.
