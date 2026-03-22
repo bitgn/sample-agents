@@ -10,11 +10,12 @@ from agent import run_agent
 BITGN_URL = os.getenv("BENCHMARK_HOST") or "https://api.bitgn.com"
 
 # MODEL_ID = "anthropic/claude-sonnet-4.6"
-MODEL_ID = "qwen3.5:4b"
+MODEL_ID = "qwen3.5:2b"
 # MODEL_ID = "qwen/qwen3.5-9b"
 
 # U7: Model-specific configurations
 MODEL_CONFIGS = {
+    "qwen3.5:2b": {"max_completion_tokens": 512},
     "qwen3.5:4b": {"max_completion_tokens": 512},
     "qwen3.5:9b": {"max_completion_tokens": 512},
     "qwen3.5:14b": {"max_completion_tokens": 512},
