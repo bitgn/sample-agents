@@ -2,3 +2,4 @@
 .envrc
 .idea/
 .claude/plans
+.secrets.backup
