@@ -5,8 +5,8 @@ description = "Runnable Python sample for the BitGN PAC1 benchmark"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "bitgn-api-connectrpc-python==0.9.0.1.20260323132449+c5849392c4b9",
-    "bitgn-api-protocolbuffers-python==34.1.0.1.20260323132449+c5849392c4b9",
+    "bitgn-api-connectrpc-python==0.9.0.1.20260323140311+cbbd8b9c3c20",
+    "bitgn-api-protocolbuffers-python==34.1.0.1.20260323140311+cbbd8b9c3c20",
     "openai>=2.26.0",
     "pydantic>=2.12.5",
 ]
