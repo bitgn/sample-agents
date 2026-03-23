@@ -14,6 +14,7 @@ MODEL_ID = "gpt-4.1-2025-04-14"
 CLI_RED = "\x1B[31m"
 CLI_GREEN = "\x1B[32m"
 CLI_CLR = "\x1B[0m"
+CLI_BLUE = "\x1B[34m"
 
 
 def main() -> None:
@@ -33,15 +34,14 @@ def main() -> None:
         for t in res.tasks:
             if task_filter and t.task_id not in task_filter:
                 continue
-            print("=" * 40)
-            print(f"Starting Task: {t.task_id}")
+            print(f"{'='*30} Starting task: {t.task_id} {'='*30}")
 
             trial = client.start_playground(StartPlaygroundRequest(
                 benchmark_id="bitgn/sandbox",
                 task_id=t.task_id,
             ))
 
-            print("Task:", trial.instruction)
+            print(f"{CLI_BLUE}{trial.instruction}{CLI_CLR}\n{'-'*80}")
 
             try:
                 run_agent(MODEL_ID,trial.harness_url, trial.instruction)
