@@ -9,13 +9,11 @@ from agent import run_agent
 
 BITGN_URL = os.getenv("BENCHMARK_HOST") or "https://api.bitgn.com"
 BENCHMARK_ID = os.getenv("BENCHMARK_ID") or "bitgn/pac1-dev"
-MODEL_ID = os.getenv("MODEL_ID") or "anthropic/claude-sonnet-4.6"
+MODEL_ID = os.getenv("MODEL_ID") or "anthropic/claude-haiku-4-5"
 
 MODEL_CONFIGS: dict[str, dict] = {
-    "anthropic/claude-sonnet-4.6": {},
     "anthropic/claude-haiku-4-5": {},
-    "openai/gpt-4.1-2025-04-14": {},
-    "gpt-4.1-2025-04-14": {},
+    "qwen/qwen3.5-9b": {"max_completion_tokens": 4000, "use_json_object": True},
 }
 
 CLI_RED = "\x1B[31m"
