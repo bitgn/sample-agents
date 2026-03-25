@@ -17,7 +17,7 @@ from .dispatch import (
     is_claude_model, get_anthropic_model_id,
     dispatch,
 )
-from .models import NextStep, ReportTaskCompletion, Req_Delete, Req_List
+from .models import NextStep, ReportTaskCompletion, Req_Delete, Req_List, Req_Read, Req_Write, Req_MkDir, Req_Move
 from .prephase import PrephaseResult
 
 
@@ -124,6 +124,8 @@ def _call_llm(log: list, model: str, max_tokens: int, cfg: dict) -> tuple[NextSt
     if is_claude_model(model) and anthropic_client is not None:
         ant_model = get_anthropic_model_id(model)
         for attempt in range(4):
+            raw = ""
+            elapsed_ms = 0
             try:
                 started = time.time()
                 system, messages = _to_anthropic_messages(log)
@@ -135,10 +137,6 @@ def _call_llm(log: list, model: str, max_tokens: int, cfg: dict) -> tuple[NextSt
                 )
                 elapsed_ms = int((time.time() - started) * 1000)
                 raw = response.content[0].text if response.content else ""
-                try:
-                    return NextStep.model_validate_json(raw), elapsed_ms
-                except (ValidationError, ValueError) as e:
-                    raise RuntimeError(f"JSON parse failed: {e}") from e
             except Exception as e:
                 err_str = str(e)
                 is_transient = any(kw.lower() in err_str.lower() for kw in _TRANSIENT_KWS)
@@ -148,6 +146,13 @@ def _call_llm(log: list, model: str, max_tokens: int, cfg: dict) -> tuple[NextSt
                     continue
                 print(f"{CLI_RED}[Anthropic] Error: {e}{CLI_CLR}")
                 break
+            else:
+                # API succeeded — parse JSON; don't fall back to Ollama on parse errors
+                try:
+                    return NextStep.model_validate_json(raw), elapsed_ms
+                except (ValidationError, ValueError) as e:
+                    print(f"{CLI_RED}[Anthropic] JSON parse failed: {e}{CLI_CLR}")
+                    return None, elapsed_ms
 
         print(f"{CLI_YELLOW}[Anthropic] Falling back to Ollama{CLI_CLR}")
 
@@ -273,7 +278,6 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
             result = dispatch(vm, job.function)
             raw = json.dumps(MessageToDict(result), indent=2) if result else "{}"
             txt = _format_result(result, raw)
-            from .models import Req_Write, Req_MkDir, Req_Move
             if isinstance(job.function, Req_Delete) and not txt.startswith("ERROR"):
                 txt = f"DELETED: {job.function.path}"
             elif isinstance(job.function, Req_Write) and not txt.startswith("ERROR"):
@@ -285,7 +289,6 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
             txt = f"ERROR {exc.code}: {exc.message}"
             print(f"{CLI_RED}ERR {exc.code}: {exc.message}{CLI_CLR}")
             # FIX-73: after NOT_FOUND on read, auto-relist parent — path may have been garbled
-            from .models import Req_Read
             if isinstance(job.function, Req_Read) and exc.code.name == "NOT_FOUND":
                 parent = str(_Path(job.function.path.strip()).parent)
                 print(f"{CLI_YELLOW}[FIX-73] Auto-relisting {parent} after read NOT_FOUND (path may be garbled){CLI_CLR}")
