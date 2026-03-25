@@ -13,61 +13,61 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x12\x62itgn/vm/pcm.proto\x12\x0c\x62itgn.vm.pcm\"R\n\x08TreeNode\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0e\n\x06is_dir\x18\x02 \x01(\x08\x12(\n\x08\x63hildren\x18\x03 \x03(\x0b\x32\x16.bitgn.vm.pcm.TreeNode\"\x1b\n\x0bTreeRequest\x12\x0c\n\x04root\x18\x01 \x01(\t\"4\n\x0cTreeResponse\x12$\n\x04root\x18\x01 \x01(\x0b\x32\x16.bitgn.vm.pcm.TreeNode\"F\n\x0b\x46indRequest\x12\x0c\n\x04root\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\x0c\n\x04type\x18\x03 \x01(\x05\x12\r\n\x05limit\x18\x04 \x01(\x05\"\x1d\n\x0c\x46indResponse\x12\r\n\x05items\x18\x01 \x03(\t\"=\n\rSearchRequest\x12\x0c\n\x04root\x18\x01 \x01(\t\x12\x0f\n\x07pattern\x18\x02 \x01(\t\x12\r\n\x05limit\x18\x03 \x01(\x05\"<\n\x0bSearchMatch\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x0c\n\x04line\x18\x02 \x01(\x05\x12\x11\n\tline_text\x18\x03 \x01(\t\"<\n\x0eSearchResponse\x12*\n\x07matches\x18\x01 \x03(\x0b\x32\x19.bitgn.vm.pcm.SearchMatch\"\x1b\n\x0bListRequest\x12\x0c\n\x04name\x18\x01 \x01(\t\")\n\tListEntry\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0e\n\x06is_dir\x18\x02 \x01(\x08\"8\n\x0cListResponse\x12(\n\x07\x65ntries\x18\x01 \x03(\x0b\x32\x17.bitgn.vm.pcm.ListEntry\"\x1b\n\x0bReadRequest\x12\x0c\n\x04path\x18\x01 \x01(\t\"-\n\x0cReadResponse\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x0f\n\x07\x63ontent\x18\x02 \x01(\t\"-\n\x0cWriteRequest\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x0f\n\x07\x63ontent\x18\x02 \x01(\t\"\x0f\n\rWriteResponse\"\x1d\n\rDeleteRequest\x12\x0c\n\x04path\x18\x01 \x01(\t\"\x10\n\x0e\x44\x65leteResponse\"\x1c\n\x0cMkDirRequest\x12\x0c\n\x04path\x18\x01 \x01(\t\"\x0f\n\rMkDirResponse\"1\n\x0bMoveRequest\x12\x11\n\tfrom_name\x18\x01 \x01(\t\x12\x0f\n\x07to_name\x18\x02 \x01(\t\"\x0e\n\x0cMoveResponse\"V\n\rAnswerRequest\x12\x0f\n\x07message\x18\x01 \x01(\t\x12&\n\x07outcome\x18\x02 \x01(\x0e\x32\x15.bitgn.vm.pcm.Outcome\x12\x0c\n\x04refs\x18\x03 \x03(\t\"\x10\n\x0e\x41nswerResponse*\x8e\x01\n\x07Outcome\x12\x0e\n\nOUTCOME_OK\x10\x00\x12\x1b\n\x17OUTCOME_DENIED_SECURITY\x10\x01\x12\x1e\n\x1aOUTCOME_NONE_CLARIFICATION\x10\x02\x12\x1c\n\x18OUTCOME_NONE_UNSUPPORTED\x10\x03\x12\x18\n\x14OUTCOME_ERR_INTERNAL\x10\x04\x32\x9a\x05\n\nPcmRuntime\x12=\n\x04Tree\x12\x19.bitgn.vm.pcm.TreeRequest\x1a\x1a.bitgn.vm.pcm.TreeResponse\x12=\n\x04\x46ind\x12\x19.bitgn.vm.pcm.FindRequest\x1a\x1a.bitgn.vm.pcm.FindResponse\x12\x43\n\x06Search\x12\x1b.bitgn.vm.pcm.SearchRequest\x1a\x1c.bitgn.vm.pcm.SearchResponse\x12=\n\x04List\x12\x19.bitgn.vm.pcm.ListRequest\x1a\x1a.bitgn.vm.pcm.ListResponse\x12=\n\x04Read\x12\x19.bitgn.vm.pcm.ReadRequest\x1a\x1a.bitgn.vm.pcm.ReadResponse\x12@\n\x05Write\x12\x1a.bitgn.vm.pcm.WriteRequest\x1a\x1b.bitgn.vm.pcm.WriteResponse\x12\x43\n\x06\x44\x65lete\x12\x1b.bitgn.vm.pcm.DeleteRequest\x1a\x1c.bitgn.vm.pcm.DeleteResponse\x12@\n\x05MkDir\x12\x1a.bitgn.vm.pcm.MkDirRequest\x1a\x1b.bitgn.vm.pcm.MkDirResponse\x12=\n\x04Move\x12\x19.bitgn.vm.pcm.MoveRequest\x1a\x1a.bitgn.vm.pcm.MoveResponse\x12\x43\n\x06\x41nswer\x12\x1b.bitgn.vm.pcm.AnswerRequest\x1a\x1c.bitgn.vm.pcm.AnswerResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x12\x62itgn/vm/pcm.proto\x12\x0c\x62itgn.vm.pcm\"R\n\x08TreeNode\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0e\n\x06is_dir\x18\x02 \x01(\x08\x12(\n\x08\x63hildren\x18\x03 \x03(\x0b\x32\x16.bitgn.vm.pcm.TreeNode\"*\n\x0bTreeRequest\x12\x0c\n\x04root\x18\x01 \x01(\t\x12\r\n\x05level\x18\x02 \x01(\x05\"4\n\x0cTreeResponse\x12$\n\x04root\x18\x01 \x01(\x0b\x32\x16.bitgn.vm.pcm.TreeNode\"F\n\x0b\x46indRequest\x12\x0c\n\x04root\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\x0c\n\x04type\x18\x03 \x01(\x05\x12\r\n\x05limit\x18\x04 \x01(\x05\"\x1d\n\x0c\x46indResponse\x12\r\n\x05items\x18\x01 \x03(\t\"=\n\rSearchRequest\x12\x0c\n\x04root\x18\x01 \x01(\t\x12\x0f\n\x07pattern\x18\x02 \x01(\t\x12\r\n\x05limit\x18\x03 \x01(\x05\"<\n\x0bSearchMatch\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x0c\n\x04line\x18\x02 \x01(\x05\x12\x11\n\tline_text\x18\x03 \x01(\t\"<\n\x0eSearchResponse\x12*\n\x07matches\x18\x01 \x03(\x0b\x32\x19.bitgn.vm.pcm.SearchMatch\"\x1b\n\x0bListRequest\x12\x0c\n\x04name\x18\x01 \x01(\t\")\n\tListEntry\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0e\n\x06is_dir\x18\x02 \x01(\x08\"8\n\x0cListResponse\x12(\n\x07\x65ntries\x18\x01 \x03(\x0b\x32\x17.bitgn.vm.pcm.ListEntry\"Q\n\x0bReadRequest\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x0e\n\x06number\x18\x02 \x01(\x08\x12\x12\n\nstart_line\x18\x03 \x01(\x05\x12\x10\n\x08\x65nd_line\x18\x04 \x01(\x05\"-\n\x0cReadResponse\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x0f\n\x07\x63ontent\x18\x02 \x01(\t\"S\n\x0cWriteRequest\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x0f\n\x07\x63ontent\x18\x02 \x01(\t\x12\x12\n\nstart_line\x18\x03 \x01(\x05\x12\x10\n\x08\x65nd_line\x18\x04 \x01(\x05\"\x0f\n\rWriteResponse\"\x1d\n\rDeleteRequest\x12\x0c\n\x04path\x18\x01 \x01(\t\"\x10\n\x0e\x44\x65leteResponse\"\x1c\n\x0cMkDirRequest\x12\x0c\n\x04path\x18\x01 \x01(\t\"\x0f\n\rMkDirResponse\"1\n\x0bMoveRequest\x12\x11\n\tfrom_name\x18\x01 \x01(\t\x12\x0f\n\x07to_name\x18\x02 \x01(\t\"\x0e\n\x0cMoveResponse\"V\n\rAnswerRequest\x12\x0f\n\x07message\x18\x01 \x01(\t\x12&\n\x07outcome\x18\x02 \x01(\x0e\x32\x15.bitgn.vm.pcm.Outcome\x12\x0c\n\x04refs\x18\x03 \x03(\t\"\x10\n\x0e\x41nswerResponse*\x8e\x01\n\x07Outcome\x12\x0e\n\nOUTCOME_OK\x10\x00\x12\x1b\n\x17OUTCOME_DENIED_SECURITY\x10\x01\x12\x1e\n\x1aOUTCOME_NONE_CLARIFICATION\x10\x02\x12\x1c\n\x18OUTCOME_NONE_UNSUPPORTED\x10\x03\x12\x18\n\x14OUTCOME_ERR_INTERNAL\x10\x04\x32\x9a\x05\n\nPcmRuntime\x12=\n\x04Tree\x12\x19.bitgn.vm.pcm.TreeRequest\x1a\x1a.bitgn.vm.pcm.TreeResponse\x12=\n\x04\x46ind\x12\x19.bitgn.vm.pcm.FindRequest\x1a\x1a.bitgn.vm.pcm.FindResponse\x12\x43\n\x06Search\x12\x1b.bitgn.vm.pcm.SearchRequest\x1a\x1c.bitgn.vm.pcm.SearchResponse\x12=\n\x04List\x12\x19.bitgn.vm.pcm.ListRequest\x1a\x1a.bitgn.vm.pcm.ListResponse\x12=\n\x04Read\x12\x19.bitgn.vm.pcm.ReadRequest\x1a\x1a.bitgn.vm.pcm.ReadResponse\x12@\n\x05Write\x12\x1a.bitgn.vm.pcm.WriteRequest\x1a\x1b.bitgn.vm.pcm.WriteResponse\x12\x43\n\x06\x44\x65lete\x12\x1b.bitgn.vm.pcm.DeleteRequest\x1a\x1c.bitgn.vm.pcm.DeleteResponse\x12@\n\x05MkDir\x12\x1a.bitgn.vm.pcm.MkDirRequest\x1a\x1b.bitgn.vm.pcm.MkDirResponse\x12=\n\x04Move\x12\x19.bitgn.vm.pcm.MoveRequest\x1a\x1a.bitgn.vm.pcm.MoveResponse\x12\x43\n\x06\x41nswer\x12\x1b.bitgn.vm.pcm.AnswerRequest\x1a\x1c.bitgn.vm.pcm.AnswerResponseb\x06proto3')
 
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, globals())
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'bitgn.vm.pcm_pb2', globals())
 if _descriptor._USE_C_DESCRIPTORS == False:
 
   DESCRIPTOR._options = None
-  _OUTCOME._serialized_start=1033
-  _OUTCOME._serialized_end=1175
+  _OUTCOME._serialized_start=1140
+  _OUTCOME._serialized_end=1282
   _TREENODE._serialized_start=36
   _TREENODE._serialized_end=118
   _TREEREQUEST._serialized_start=120
-  _TREEREQUEST._serialized_end=147
-  _TREERESPONSE._serialized_start=149
-  _TREERESPONSE._serialized_end=201
-  _FINDREQUEST._serialized_start=203
-  _FINDREQUEST._serialized_end=273
-  _FINDRESPONSE._serialized_start=275
-  _FINDRESPONSE._serialized_end=304
-  _SEARCHREQUEST._serialized_start=306
-  _SEARCHREQUEST._serialized_end=367
-  _SEARCHMATCH._serialized_start=369
-  _SEARCHMATCH._serialized_end=429
-  _SEARCHRESPONSE._serialized_start=431
-  _SEARCHRESPONSE._serialized_end=491
-  _LISTREQUEST._serialized_start=493
-  _LISTREQUEST._serialized_end=520
-  _LISTENTRY._serialized_start=522
-  _LISTENTRY._serialized_end=563
-  _LISTRESPONSE._serialized_start=565
-  _LISTRESPONSE._serialized_end=621
-  _READREQUEST._serialized_start=623
-  _READREQUEST._serialized_end=650
-  _READRESPONSE._serialized_start=652
-  _READRESPONSE._serialized_end=697
-  _WRITEREQUEST._serialized_start=699
-  _WRITEREQUEST._serialized_end=744
-  _WRITERESPONSE._serialized_start=746
-  _WRITERESPONSE._serialized_end=761
-  _DELETEREQUEST._serialized_start=763
-  _DELETEREQUEST._serialized_end=792
-  _DELETERESPONSE._serialized_start=794
-  _DELETERESPONSE._serialized_end=810
-  _MKDIRREQUEST._serialized_start=812
-  _MKDIRREQUEST._serialized_end=840
-  _MKDIRRESPONSE._serialized_start=842
-  _MKDIRRESPONSE._serialized_end=857
-  _MOVEREQUEST._serialized_start=859
-  _MOVEREQUEST._serialized_end=908
-  _MOVERESPONSE._serialized_start=910
-  _MOVERESPONSE._serialized_end=924
-  _ANSWERREQUEST._serialized_start=926
-  _ANSWERREQUEST._serialized_end=1012
-  _ANSWERRESPONSE._serialized_start=1014
-  _ANSWERRESPONSE._serialized_end=1030
-  _PCMRUNTIME._serialized_start=1178
-  _PCMRUNTIME._serialized_end=1844
+  _TREEREQUEST._serialized_end=162
+  _TREERESPONSE._serialized_start=164
+  _TREERESPONSE._serialized_end=216
+  _FINDREQUEST._serialized_start=218
+  _FINDREQUEST._serialized_end=288
+  _FINDRESPONSE._serialized_start=290
+  _FINDRESPONSE._serialized_end=319
+  _SEARCHREQUEST._serialized_start=321
+  _SEARCHREQUEST._serialized_end=382
+  _SEARCHMATCH._serialized_start=384
+  _SEARCHMATCH._serialized_end=444
+  _SEARCHRESPONSE._serialized_start=446
+  _SEARCHRESPONSE._serialized_end=506
+  _LISTREQUEST._serialized_start=508
+  _LISTREQUEST._serialized_end=535
+  _LISTENTRY._serialized_start=537
+  _LISTENTRY._serialized_end=578
+  _LISTRESPONSE._serialized_start=580
+  _LISTRESPONSE._serialized_end=636
+  _READREQUEST._serialized_start=638
+  _READREQUEST._serialized_end=719
+  _READRESPONSE._serialized_start=721
+  _READRESPONSE._serialized_end=766
+  _WRITEREQUEST._serialized_start=768
+  _WRITEREQUEST._serialized_end=851
+  _WRITERESPONSE._serialized_start=853
+  _WRITERESPONSE._serialized_end=868
+  _DELETEREQUEST._serialized_start=870
+  _DELETEREQUEST._serialized_end=899
+  _DELETERESPONSE._serialized_start=901
+  _DELETERESPONSE._serialized_end=917
+  _MKDIRREQUEST._serialized_start=919
+  _MKDIRREQUEST._serialized_end=947
+  _MKDIRRESPONSE._serialized_start=949
+  _MKDIRRESPONSE._serialized_end=964
+  _MOVEREQUEST._serialized_start=966
+  _MOVEREQUEST._serialized_end=1015
+  _MOVERESPONSE._serialized_start=1017
+  _MOVERESPONSE._serialized_end=1031
+  _ANSWERREQUEST._serialized_start=1033
+  _ANSWERREQUEST._serialized_end=1119
+  _ANSWERRESPONSE._serialized_start=1121
+  _ANSWERRESPONSE._serialized_end=1137
+  _PCMRUNTIME._serialized_start=1285
+  _PCMRUNTIME._serialized_end=1951
 # @@protoc_insertion_point(module_scope)

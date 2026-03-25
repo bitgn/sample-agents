@@ -1,7 +1,5 @@
 from dataclasses import dataclass
 
-from google.protobuf.json_format import MessageToDict
-
 from bitgn.vm.pcm_connect import PcmRuntimeClientSync
 from bitgn.vm.pcm_pb2 import ReadRequest, TreeRequest
 
@@ -16,18 +14,29 @@ class PrephaseResult:
     agents_md_path: str = ""  # path where AGENTS.md was found
 
 
-def _render_tree(node: dict, indent: int = 0) -> str:
-    """Render recursive TreeNode dict into readable indented listing."""
-    prefix = "  " * indent
-    name = node.get("name", "?")
-    is_dir = node.get("isDir", False)
-    children = node.get("children", [])
-    suffix = "/" if is_dir else ""
-    line = f"{prefix}{name}{suffix}"
-    if children:
-        child_lines = [_render_tree(c, indent + 1) for c in children]
-        return line + "\n" + "\n".join(child_lines)
-    return line
+def _format_tree_entry(entry, prefix: str = "", is_last: bool = True) -> list[str]:
+    branch = "└── " if is_last else "├── "
+    lines = [f"{prefix}{branch}{entry.name}"]
+    child_prefix = f"{prefix}{'    ' if is_last else '│   '}"
+    children = list(entry.children)
+    for idx, child in enumerate(children):
+        lines.extend(_format_tree_entry(child, prefix=child_prefix, is_last=idx == len(children) - 1))
+    return lines
+
+
+def _render_tree_result(result, root_path: str = "/", level: int = 2) -> str:
+    """Render TreeResponse into compact shell-like output."""
+    root = result.root
+    if not root.name:
+        body = "."
+    else:
+        lines = [root.name]
+        children = list(root.children)
+        for idx, child in enumerate(children):
+            lines.extend(_format_tree_entry(child, is_last=idx == len(children) - 1))
+        body = "\n".join(lines)
+    level_arg = f" -L {level}" if level > 0 else ""
+    return f"tree{level_arg} {root_path}\n{body}"
 
 
 def run_prephase(
@@ -47,14 +56,12 @@ def run_prephase(
         {"role": "user", "content": task_text},
     ]
 
-    # Step 1: tree "/" — gives the agent the full vault layout upfront
-    print(f"{CLI_BLUE}[prephase] tree /...{CLI_CLR}", end=" ")
+    # Step 1: tree "/" -L 2 — gives the agent the top-level vault layout upfront
+    print(f"{CLI_BLUE}[prephase] tree -L 2 /...{CLI_CLR}", end=" ")
     tree_txt = ""
     try:
-        tree_result = vm.tree(TreeRequest(root="/"))
-        d = MessageToDict(tree_result)
-        root_node = d.get("root", {})
-        tree_txt = _render_tree(root_node) if root_node else "(empty vault)"
+        tree_result = vm.tree(TreeRequest(root="/", level=2))
+        tree_txt = _render_tree_result(tree_result, root_path="/", level=2)
         print(f"{CLI_GREEN}ok{CLI_CLR}")
     except Exception as e:
         tree_txt = f"(tree failed: {e})"

@@ -4,9 +4,7 @@
   - anthropic/claude-haiku-4.5
   - qwen/qwen3.5-9b
 
-# Актуальный статус
-
-Тестируется и дорабатывается агент pac1-py
+**Запрещено** Использовать паттерн хардкода при доработке агента. Исправлять системно.
 
 # Тестирование
 
@@ -14,8 +12,6 @@
 ```bash
 cd pac1-py && MODEL_ID="anthropic/claude-haiku-4.5" uv run python main.py
 ```
-- Модели для тестированния: anthropic/claude-haiku-4.5qwen/qwen3.5-9b
-
 
 # Сбор логов
 

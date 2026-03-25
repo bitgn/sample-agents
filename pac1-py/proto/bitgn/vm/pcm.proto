@@ -32,6 +32,7 @@ message TreeNode {
 
 message TreeRequest {
   string root = 1;
+  int32 level = 2;
 }
 
 message TreeResponse {
@@ -84,6 +85,9 @@ message ListResponse {
 // Read
 message ReadRequest {
   string path = 1;
+  bool number = 2;
+  int32 start_line = 3;
+  int32 end_line = 4;
 }
 
 message ReadResponse {
@@ -95,6 +99,8 @@ message ReadResponse {
 message WriteRequest {
   string path = 1;
   string content = 2;
+  int32 start_line = 3;
+  int32 end_line = 4;
 }
 
 message WriteResponse {}

@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+import anthropic
 from openai import OpenAI
 from pydantic import BaseModel
 
@@ -34,7 +35,7 @@ from .models import (
 
 
 # ---------------------------------------------------------------------------
-# Secrets & OpenRouter/OpenAI client setup
+# Secrets loader
 # ---------------------------------------------------------------------------
 
 def _load_secrets(path: str = ".secrets") -> None:
@@ -54,8 +55,24 @@ def _load_secrets(path: str = ".secrets") -> None:
 
 _load_secrets()
 
-_OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY")
 
+# ---------------------------------------------------------------------------
+# LLM clients
+# ---------------------------------------------------------------------------
+
+_ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY")
+_OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY")
+_OLLAMA_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+
+# Primary: Anthropic SDK for Claude models
+anthropic_client: anthropic.Anthropic | None = (
+    anthropic.Anthropic(api_key=_ANTHROPIC_KEY) if _ANTHROPIC_KEY else None
+)
+
+# Fallback: Ollama via OpenAI-compatible API
+ollama_client = OpenAI(base_url=_OLLAMA_URL, api_key="ollama")
+
+# Legacy: OpenRouter (kept for backward compatibility)
 if _OPENROUTER_KEY:
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
@@ -66,8 +83,29 @@ if _OPENROUTER_KEY:
         },
     )
 else:
-    # Fallback to OPENAI_API_KEY
-    client = OpenAI()
+    client = ollama_client
+
+
+# ---------------------------------------------------------------------------
+# Model routing helpers
+# ---------------------------------------------------------------------------
+
+_ANTHROPIC_MODEL_MAP = {
+    "claude-haiku-4.5": "claude-haiku-4-5-20251001",
+    "claude-haiku-4-5": "claude-haiku-4-5-20251001",
+    "claude-sonnet-4.6": "claude-sonnet-4-6",
+    "claude-opus-4.6": "claude-opus-4-6",
+}
+
+
+def is_claude_model(model: str) -> bool:
+    return "claude" in model.lower()
+
+
+def get_anthropic_model_id(model: str) -> str:
+    """Map alias (e.g. 'anthropic/claude-haiku-4.5') to Anthropic API model ID."""
+    clean = model.removeprefix("anthropic/").lower()
+    return _ANTHROPIC_MODEL_MAP.get(clean, clean)
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +138,7 @@ OUTCOME_BY_NAME = {
 
 def dispatch(vm: PcmRuntimeClientSync, cmd: BaseModel):
     if isinstance(cmd, Req_Tree):
-        return vm.tree(TreeRequest(root=cmd.root))
+        return vm.tree(TreeRequest(root=cmd.root, level=cmd.level))
     if isinstance(cmd, Req_Find):
         return vm.find(
             FindRequest(
@@ -115,9 +153,19 @@ def dispatch(vm: PcmRuntimeClientSync, cmd: BaseModel):
     if isinstance(cmd, Req_List):
         return vm.list(ListRequest(name=cmd.path))
     if isinstance(cmd, Req_Read):
-        return vm.read(ReadRequest(path=cmd.path))
+        return vm.read(ReadRequest(
+            path=cmd.path,
+            number=cmd.number,
+            start_line=cmd.start_line,
+            end_line=cmd.end_line,
+        ))
     if isinstance(cmd, Req_Write):
-        return vm.write(WriteRequest(path=cmd.path, content=cmd.content))
+        return vm.write(WriteRequest(
+            path=cmd.path,
+            content=cmd.content,
+            start_line=cmd.start_line,
+            end_line=cmd.end_line,
+        ))
     if isinstance(cmd, Req_Delete):
         return vm.delete(DeleteRequest(path=cmd.path))
     if isinstance(cmd, Req_MkDir):

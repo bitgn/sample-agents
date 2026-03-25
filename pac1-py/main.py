@@ -10,11 +10,15 @@ from agent import run_agent
 
 BITGN_URL = os.getenv("BENCHMARK_HOST") or "https://api.bitgn.com"
 BENCHMARK_ID = os.getenv("BENCHMARK_ID") or "bitgn/pac1-dev"
-MODEL_ID = os.getenv("MODEL_ID") or "anthropic/claude-haiku-4-5"
+MODEL_ID = os.getenv("MODEL_ID") or "anthropic/claude-haiku-4.5"
 
 MODEL_CONFIGS: dict[str, dict] = {
-    "anthropic/claude-haiku-4-5": {},
-    "qwen/qwen3.5-9b": {"max_completion_tokens": 4000, "use_json_object": True},
+    # Claude models — use Anthropic SDK directly
+    "anthropic/claude-haiku-4.5": {},
+    "anthropic/claude-sonnet-4.6": {},
+    # Ollama local fallback models
+    "qwen/qwen3.5-9b": {"max_completion_tokens": 4000, "ollama_model": "qwen3.5:9b"},
+    "qwen2.5:7b": {"max_completion_tokens": 4000},
 }
 
 CLI_RED = "\x1B[31m"

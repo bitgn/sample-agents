@@ -55,6 +55,7 @@ class ReportTaskCompletion(BaseModel):
 
 class Req_Tree(BaseModel):
     tool: Literal["tree"]
+    level: int = Field(2, description="max tree depth, 0 means unlimited")
     root: str = Field("", description="tree root, empty means repository root")
 
 
@@ -81,12 +82,17 @@ class Req_List(BaseModel):
 class Req_Read(BaseModel):
     tool: Literal["read"]
     path: str
+    number: bool = Field(False, description="return 1-based line numbers")
+    start_line: int = Field(0, description="1-based inclusive linum; 0 == from the first line")
+    end_line: int = Field(0, description="1-based inclusive linum; 0 == through the last line")
 
 
 class Req_Write(BaseModel):
     tool: Literal["write"]
     path: str
     content: str
+    start_line: int = Field(0, description="1-based inclusive line number; 0 keeps whole-file overwrite behavior")
+    end_line: int = Field(0, description="1-based inclusive line number; 0 means through the last line for ranged writes")
 
 
 class Req_Delete(BaseModel):
