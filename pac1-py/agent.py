@@ -6,6 +6,7 @@ from annotated_types import Ge, Le, MaxLen, MinLen
 from bitgn.vm.pcm_connect import PcmRuntimeClientSync
 from bitgn.vm.pcm_pb2 import (
     AnswerRequest,
+    ContextRequest,
     DeleteRequest,
     FindRequest,
     ListRequest,
@@ -73,6 +74,10 @@ class Req_Read(BaseModel):
     end_line: Annotated[int, Ge(0)] = Field( 0, description="1-based inclusive linum; 0 == through the last line", )
 
 
+class Req_Context(BaseModel):
+    tool: Literal["context"]
+
+
 class Req_Write(BaseModel):
     tool: Literal["write"]
     path: str
@@ -116,6 +121,7 @@ class NextStep(BaseModel):
     # only the runtime events that the harness persisted.
     function: Union[
         ReportTaskCompletion,
+        Req_Context,
         Req_Tree,
         Req_Find,
         Req_Search,
@@ -230,6 +236,8 @@ def _format_result(cmd: BaseModel, result) -> str:
 
 
 def dispatch(vm: PcmRuntimeClientSync, cmd: BaseModel):
+    if isinstance(cmd, Req_Context):
+        return vm.context(ContextRequest())
     if isinstance(cmd, Req_Tree):
         return vm.tree(TreeRequest(root=cmd.root, level=cmd.level))
     if isinstance(cmd, Req_Find):
@@ -295,6 +303,7 @@ def run_agent(model: str, harness_url: str, task_text: str) -> None:
     must = [
         Req_Tree(level=2, tool="tree", root="/"),
         Req_Read(path="AGENTS.md", tool="read"),
+        Req_Context(tool="context"),
     ]
 
     for c in must:
