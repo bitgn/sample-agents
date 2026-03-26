@@ -1,9 +1,54 @@
+import re
 from dataclasses import dataclass
 
 from bitgn.vm.pcm_connect import PcmRuntimeClientSync
 from bitgn.vm.pcm_pb2 import ContextRequest, ReadRequest, TreeRequest
 
 from .dispatch import CLI_BLUE, CLI_CLR, CLI_GREEN, CLI_YELLOW
+
+_AGENTS_MD_BUDGET = 2500  # chars; if AGENTS.MD exceeds this, filter to relevant sections only
+
+
+def _filter_agents_md(content: str, task_text: str) -> tuple[str, bool]:
+    """Return (filtered_content, was_filtered).
+    Splits AGENTS.MD by ## headings, keeps preamble + sections most relevant to task_text.
+    If content is under budget, returns as-is."""
+    if len(content) <= _AGENTS_MD_BUDGET:
+        return content, False
+
+    # Split by markdown headings (## or #), preserving heading lines
+    parts = re.split(r'^(#{1,3} .+)$', content, flags=re.MULTILINE)
+    # parts = [preamble, heading1, body1, heading2, body2, ...]
+
+    sections: list[tuple[str, str]] = []
+    if parts[0].strip():
+        sections.append(("", parts[0]))  # preamble (no heading)
+    for i in range(1, len(parts) - 1, 2):
+        sections.append((parts[i], parts[i + 1]))
+
+    if len(sections) <= 1:
+        return content[:_AGENTS_MD_BUDGET] + "\n[...truncated]", True
+
+    task_words = set(re.findall(r'\b\w{3,}\b', task_text.lower()))
+
+    def _score(heading: str, body: str) -> int:
+        if not heading:
+            return 1000  # preamble always first
+        h_words = set(re.findall(r'\b\w{3,}\b', heading.lower()))
+        b_words = set(re.findall(r'\b\w{3,}\b', body[:400].lower()))
+        return len(task_words & h_words) * 5 + len(task_words & b_words)
+
+    scored = sorted(sections, key=lambda s: -_score(s[0], s[1]))
+
+    result_parts: list[str] = []
+    used = 0
+    for heading, body in scored:
+        chunk = (heading + body) if heading else body
+        if used + len(chunk) <= _AGENTS_MD_BUDGET:
+            result_parts.append(chunk)
+            used += len(chunk)
+
+    return "".join(result_parts), True
 
 
 @dataclass
@@ -85,8 +130,11 @@ def run_prephase(
     # where "cards", "threads", "inbox", etc. actually live in the vault.
     prephase_parts = [f"VAULT STRUCTURE:\n{tree_txt}"]
     if agents_md_content:
+        agents_md_injected, was_filtered = _filter_agents_md(agents_md_content, task_text)
+        if was_filtered:
+            print(f"{CLI_YELLOW}[prephase] AGENTS.MD filtered: {len(agents_md_content)} → {len(agents_md_injected)} chars{CLI_CLR}")
         prephase_parts.append(
-            f"\n{agents_md_path} CONTENT (source of truth for vault semantics):\n{agents_md_content}"
+            f"\n{agents_md_path} CONTENT (source of truth for vault semantics):\n{agents_md_injected}"
         )
     prephase_parts.append(
         "\nNOTE: Use the vault structure and AGENTS.MD above to identify actual folder "

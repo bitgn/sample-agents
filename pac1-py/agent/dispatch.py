@@ -1,4 +1,6 @@
 import os
+import re
+import time
 from pathlib import Path
 
 import anthropic
@@ -55,7 +57,8 @@ def _load_secrets(path: str = ".secrets") -> None:
             os.environ[key] = value
 
 
-_load_secrets()
+_load_secrets(".env")   # model names (no credentials) — loads first; .secrets and real env vars override
+_load_secrets()         # credentials (.secrets)
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +175,111 @@ def get_response_format(mode: str) -> dict | None:
         if _NEXTSTEP_SCHEMA is None:
             _NEXTSTEP_SCHEMA = _nextstep_json_schema()
         return {"type": "json_schema", "json_schema": {"name": "NextStep", "strict": True, "schema": _NEXTSTEP_SCHEMA}}
+    return None
+
+
+# ---------------------------------------------------------------------------
+# FIX-76: lightweight raw LLM call (used by classify_task_llm in classifier.py)
+# ---------------------------------------------------------------------------
+
+# Transient error keywords — copy also in loop.py; keep both in sync
+_TRANSIENT_KWS_RAW = (
+    "503", "502", "429", "NoneType", "overloaded",
+    "unavailable", "server error", "rate limit", "rate-limit",
+)
+
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+
+def call_llm_raw(
+    system: str,
+    user_msg: str,
+    model: str,
+    cfg: dict,
+    max_tokens: int = 20,
+) -> str | None:
+    """FIX-76: Lightweight LLM call with 3-tier routing and FIX-27 retry.
+    Returns raw text (think blocks stripped), or None if all tiers fail.
+    Used by classify_task_llm(); caller handles JSON parsing and fallback."""
+
+    msgs = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user_msg},
+    ]
+
+    # --- Tier 1: Anthropic SDK ---
+    if is_claude_model(model) and anthropic_client is not None:
+        ant_model = get_anthropic_model_id(model)
+        for attempt in range(4):
+            try:
+                resp = anthropic_client.messages.create(
+                    model=ant_model,
+                    max_tokens=max_tokens,
+                    system=system,
+                    messages=[{"role": "user", "content": user_msg}],
+                )
+                # Iterate blocks — take first type="text" (skip thinking blocks)
+                for block in resp.content:
+                    if getattr(block, "type", None) == "text" and block.text.strip():
+                        return block.text.strip()
+                if attempt < 3:
+                    print(f"[FIX-76][Anthropic] Empty response (attempt {attempt + 1}) — retrying")
+                    continue
+                return ""  # no text block after all retries
+            except Exception as e:
+                if any(kw.lower() in str(e).lower() for kw in _TRANSIENT_KWS_RAW) and attempt < 3:
+                    print(f"[FIX-76][Anthropic] Transient (attempt {attempt + 1}): {e} — retrying in 4s")
+                    time.sleep(4)
+                    continue
+                print(f"[FIX-76][Anthropic] Error: {e}")
+                break
+
+    # --- Tier 2: OpenRouter (skip local qwen3.5: models) ---
+    if openrouter_client is not None and not model.startswith("qwen3.5:"):
+        so_mode = probe_structured_output(openrouter_client, model, hint=cfg.get("response_format_hint"))
+        rf = {"type": "json_object"} if so_mode == "json_object" else None
+        for attempt in range(4):
+            try:
+                create_kwargs: dict = dict(model=model, max_tokens=max_tokens, messages=msgs)
+                if rf is not None:
+                    create_kwargs["response_format"] = rf
+                resp = openrouter_client.chat.completions.create(**create_kwargs)
+                raw = _THINK_RE.sub("", resp.choices[0].message.content or "").strip()
+                if not raw and attempt < 3:
+                    print(f"[FIX-76][OpenRouter] Empty response (attempt {attempt + 1}) — retrying")
+                    continue
+                return raw
+            except Exception as e:
+                if any(kw.lower() in str(e).lower() for kw in _TRANSIENT_KWS_RAW) and attempt < 3:
+                    print(f"[FIX-76][OpenRouter] Transient (attempt {attempt + 1}): {e} — retrying in 4s")
+                    time.sleep(4)
+                    continue
+                print(f"[FIX-76][OpenRouter] Error: {e}")
+                break
+
+    # --- Tier 3: Ollama (local fallback) ---
+    ollama_model = cfg.get("ollama_model") or os.environ.get("OLLAMA_MODEL", model)
+    for attempt in range(4):
+        try:
+            resp = ollama_client.chat.completions.create(
+                model=ollama_model,
+                max_tokens=max_tokens,
+                response_format={"type": "json_object"},
+                messages=msgs,
+            )
+            raw = _THINK_RE.sub("", resp.choices[0].message.content or "").strip()
+            if not raw and attempt < 3:
+                print(f"[FIX-76][Ollama] Empty response (attempt {attempt + 1}) — retrying")
+                continue
+            return raw
+        except Exception as e:
+            if any(kw.lower() in str(e).lower() for kw in _TRANSIENT_KWS_RAW) and attempt < 3:
+                print(f"[FIX-76][Ollama] Transient (attempt {attempt + 1}): {e} — retrying in 4s")
+                time.sleep(4)
+                continue
+            print(f"[FIX-76][Ollama] Error: {e}")
+            break
+
     return None
 
 

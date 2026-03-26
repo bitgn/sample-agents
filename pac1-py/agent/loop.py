@@ -2,6 +2,7 @@ import json
 import os
 import re
 import time
+from collections import Counter, deque
 
 from google.protobuf.json_format import MessageToDict
 from connectrpc.errors import ConnectError
@@ -25,6 +26,7 @@ from .prephase import PrephaseResult
 
 TASK_TIMEOUT_S = int(os.environ.get("TASK_TIMEOUT_S", "180"))  # default 3 min, override via env
 
+# FIX-76: copy also defined in dispatch.py for call_llm_raw(); keep both in sync
 _TRANSIENT_KWS = ("503", "502", "429", "NoneType", "overloaded", "unavailable", "server error", "rate limit", "rate-limit")
 
 
@@ -193,6 +195,8 @@ def _call_openai_tier(
         else:
             in_tok = getattr(getattr(resp, "usage", None), "prompt_tokens", 0)
             out_tok = getattr(getattr(resp, "usage", None), "completion_tokens", 0)
+            think_match = re.search(r"<think>(.*?)</think>", raw, re.DOTALL)
+            think_tok = len(think_match.group(1)) // 4 if think_match else 0
             raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
             print(f"{CLI_YELLOW}[{label}] RAW: {raw[:500]}{CLI_CLR}")
             if response_format is not None:
@@ -232,7 +236,7 @@ def _call_openai_tier(
                     steps = ["continue"]
                 parsed["plan_remaining_steps_brief"] = steps[:5]
             try:
-                return NextStep.model_validate(parsed), elapsed_ms, in_tok, out_tok, 0
+                return NextStep.model_validate(parsed), elapsed_ms, in_tok, out_tok, think_tok
             except ValidationError as e:
                 print(f"{CLI_RED}[{label}] JSON parse failed: {e}{CLI_CLR}")
                 break
@@ -312,6 +316,51 @@ def _call_llm(log: list, model: str, max_tokens: int, cfg: dict) -> tuple[NextSt
 
 
 # ---------------------------------------------------------------------------
+# Adaptive stall detection (FIX-74)
+# ---------------------------------------------------------------------------
+
+def _check_stall(
+    fingerprints: deque,
+    steps_since_write: int,
+    error_counts: Counter,
+) -> str | None:
+    """Detect stall patterns and return an adaptive, task-agnostic hint.
+
+    Signals checked (in priority order):
+    1. Last 3 action fingerprints are identical → stuck in action loop.
+    2. Repeated error (same tool:path:code ≥ 2 times) → path doesn't exist.
+    3. ≥ 6 steps without any write/delete/move/mkdir → stuck in exploration.
+    Returns None if no stall detected."""
+    # Signal 1: repeated identical action
+    if len(fingerprints) >= 3 and fingerprints[-1] == fingerprints[-2] == fingerprints[-3]:
+        tool_name = fingerprints[-1].split(":")[0]
+        return (
+            f"You have called {tool_name} with the same arguments 3 times in a row without progress. "
+            "Change your approach: try a different tool, a different path, or use search/find. "
+            "If the task is complete or cannot be completed, call report_completion."
+        )
+
+    # Signal 2: repeated error on same path
+    for (tool_name, path, code), count in error_counts.items():
+        if count >= 2:
+            return (
+                f"Error {code} on path '{path}' has occurred {count} times. "
+                "This path does not exist or is inaccessible. "
+                "List the parent directory to find the correct filename, then retry."
+            )
+
+    # Signal 3: long exploration without writing
+    if steps_since_write >= 6:
+        return (
+            f"You have taken {steps_since_write} steps without writing, deleting, moving, or creating anything. "
+            "Either take a concrete action (write/delete/move/mkdir) "
+            "or call report_completion if the task is done or cannot be completed."
+        )
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Main agent loop
 # ---------------------------------------------------------------------------
 
@@ -329,6 +378,12 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
     total_in_tok = 0
     total_out_tok = 0
     total_think_tok = 0
+
+    # FIX-74: adaptive stall detection state
+    _action_fingerprints: deque = deque(maxlen=6)
+    _steps_since_write: int = 0
+    _error_counts: Counter = Counter()
+    _stall_hint_active: bool = False
 
     for i in range(max_steps):
         # --- Task timeout check ---
@@ -389,9 +444,30 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
         step_summary = job.plan_remaining_steps_brief[0] if job.plan_remaining_steps_brief else "(no steps)"
         print(f"{step_summary} ({elapsed_ms} ms)\n  {job.function}")
 
-        # Record what the agent decided to do
+        # Serialize once; reuse for fingerprint and log message
         action_name = job.function.__class__.__name__
         action_args = job.function.model_dump_json()
+
+        # FIX-74: update fingerprints and check for stall before logging
+        # (hint retry must use a log that doesn't yet contain this step)
+        _action_fingerprints.append(f"{action_name}:{action_args}")
+
+        _stall_hint = _check_stall(_action_fingerprints, _steps_since_write, _error_counts)
+        if _stall_hint and not _stall_hint_active:
+            print(f"{CLI_YELLOW}[FIX-74][STALL] Detected: {_stall_hint[:120]}{CLI_CLR}")
+            log.append({"role": "user", "content": f"[STALL HINT] {_stall_hint}"})
+            _stall_hint_active = True
+            _job2, _, _i2, _o2, _t2 = _call_llm(log, model, max_tokens, cfg)
+            log.pop()
+            if _job2 is not None:
+                job = _job2
+                total_in_tok += _i2
+                total_out_tok += _o2
+                total_think_tok += _t2
+                action_name = job.function.__class__.__name__
+                action_args = job.function.model_dump_json()
+                _action_fingerprints[-1] = f"{action_name}:{action_args}"
+
         log.append({
             "role": "assistant",
             "content": f"{step_summary}\nAction: {action_name}({action_args})",
@@ -425,6 +501,7 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
                     f"List '{wc_parent}' first, then delete each file individually by its exact path."
                 ),
             })
+            _steps_since_write += 1
             continue
 
         try:
@@ -438,9 +515,21 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
             elif isinstance(job.function, Req_MkDir) and not txt.startswith("ERROR"):
                 txt = f"CREATED DIR: {job.function.path}"
             print(f"{CLI_GREEN}OUT{CLI_CLR}: {txt[:300]}{'...' if len(txt) > 300 else ''}")
+            # FIX-74: reset stall state on meaningful progress
+            if isinstance(job.function, (Req_Write, Req_Delete, Req_Move, Req_MkDir)):
+                _steps_since_write = 0
+                _stall_hint_active = False
+                _error_counts.clear()
+            else:
+                _steps_since_write += 1
         except ConnectError as exc:
             txt = f"ERROR {exc.code}: {exc.message}"
             print(f"{CLI_RED}ERR {exc.code}: {exc.message}{CLI_CLR}")
+            # FIX-74: record repeated errors for stall detection
+            _err_path = getattr(job.function, "path", getattr(job.function, "from_name", "?"))
+            _error_counts[(action_name, _err_path, exc.code.name)] += 1
+            _stall_hint_active = False  # allow stall hint on next iteration if error repeats
+            _steps_since_write += 1
             # FIX-73: after NOT_FOUND on read, auto-relist parent — path may have been garbled
             if isinstance(job.function, Req_Read) and exc.code.name == "NOT_FOUND":
                 parent = str(_Path(job.function.path.strip()).parent)

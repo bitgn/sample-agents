@@ -49,4 +49,4 @@ Set environment variables to override defaults:
 - `BENCHMARK_ID`: defaults to `bitgn/pac1-dev`
 - `MODEL_ID`: defaults to `anthropic/claude-sonnet-4.6`
 
-Or edit `MODEL_ID` in `main.py` / `main_universal.py` directly.
+Or edit `MODEL_ID` in `main.py` directly.

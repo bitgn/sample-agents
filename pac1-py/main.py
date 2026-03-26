@@ -7,10 +7,11 @@ from bitgn.harness_pb2 import EndTrialRequest, EvalPolicy, GetBenchmarkRequest, 
 from connectrpc.errors import ConnectError
 
 from agent import run_agent
+from agent.classifier import ModelRouter
 
 BITGN_URL = os.getenv("BENCHMARK_HOST") or "https://api.bitgn.com"
 BENCHMARK_ID = os.getenv("BENCHMARK_ID") or "bitgn/pac1-dev"
-MODEL_ID = os.getenv("MODEL_ID") or "qwen3.5:9b"
+MODEL_ID = os.getenv("MODEL_ID") or "qwen3.5:cloud"
 
 MODEL_CONFIGS: dict[str, dict] = {
     # Anthropic Claude models (primary: Anthropic SDK; fallback: OpenRouter)
@@ -22,11 +23,33 @@ MODEL_CONFIGS: dict[str, dict] = {
     "qwen/qwen3.5-9b":             {"max_completion_tokens": 4000,  "response_format_hint": "json_object"},
     "meta-llama/llama-3.3-70b-instruct": {"max_completion_tokens": 4000, "response_format_hint": "json_object"},
     # Ollama local fallback models
-    "qwen3.5:9b":  {"max_completion_tokens": 4000, "ollama_think": True},
-    "qwen3.5:4b":  {"max_completion_tokens": 4000, "ollama_think": False},
-    "qwen3.5:2b":  {"max_completion_tokens": 4000, "ollama_think": False},
-    "qwen3.5:0.8b": {"max_completion_tokens": 4000, "ollama_think": False},
+    "qwen3.5:9b":    {"max_completion_tokens": 4000, "ollama_think": True},
+    "qwen3.5:4b":    {"max_completion_tokens": 4000, "ollama_think": False},
+    "qwen3.5:2b":    {"max_completion_tokens": 4000, "ollama_think": False},
+    "qwen3.5:0.8b":  {"max_completion_tokens": 4000, "ollama_think": False},
+    # Ollama cloud models
+    "qwen3.5:cloud": {"max_completion_tokens": 4000, "ollama_think": True},
+    "qwen3.5:397b-cloud": {"max_completion_tokens": 4000, "ollama_think": True},
 }
+
+# Multi-model routing: MODEL_DEFAULT/THINK/TOOL/LONG_CONTEXT override MODEL_ID
+_model_default  = os.getenv("MODEL_DEFAULT")     or MODEL_ID
+_model_think    = os.getenv("MODEL_THINK")        or MODEL_ID
+_model_tool     = os.getenv("MODEL_TOOL")         or MODEL_ID
+_model_long_ctx = os.getenv("MODEL_LONG_CONTEXT") or MODEL_ID
+
+if any(v != MODEL_ID for v in [_model_default, _model_think, _model_tool, _model_long_ctx]):
+    EFFECTIVE_MODEL: str | ModelRouter = ModelRouter(
+        default=_model_default,
+        think=_model_think,
+        tool=_model_tool,
+        long_context=_model_long_ctx,
+        configs=MODEL_CONFIGS,
+    )
+    print(f"[MODEL_ROUTER] Multi-model mode: default={_model_default}, think={_model_think}, "
+          f"tool={_model_tool}, longContext={_model_long_ctx}")
+else:
+    EFFECTIVE_MODEL = MODEL_ID
 
 CLI_RED = "\x1B[31m"
 CLI_GREEN = "\x1B[32m"
@@ -65,7 +88,7 @@ def main() -> None:
 
             token_stats: dict = {"input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0}
             try:
-                token_stats = run_agent(MODEL_ID, trial.harness_url, trial.instruction,
+                token_stats = run_agent(EFFECTIVE_MODEL, trial.harness_url, trial.instruction,
                                         model_config=MODEL_CONFIGS.get(MODEL_ID))
             except Exception as exc:
                 print(exc)
@@ -99,21 +122,79 @@ def main() -> None:
             total_think += ts.get("thinking_tokens", 0)
 
         # Summary table for log (no color codes)
-        sep = "=" * 105
-        print(f"\n{sep}")
-        print(f"{'ИТОГОВАЯ СТАТИСТИКА':^105}")
-        print(sep)
-        print(f"{'Задание':<10} {'Оценка':>7} {'Время':>8}  {'Вход(tok)':>10} {'Выход(tok)':>10} {'Думать(~tok)':>12}  Проблемы")
-        print("-" * 105)
-        for task_id, score, detail, elapsed, ts in scores:
-            issues = "; ".join(detail) if score < 1.0 else "—"
-            in_t = ts.get("input_tokens", 0)
-            out_t = ts.get("output_tokens", 0)
-            think_t = ts.get("thinking_tokens", 0)
-            print(f"{task_id:<10} {score:>7.2f} {elapsed:>7.1f}s  {in_t:>10,} {out_t:>10,} {think_t:>12,}  {issues}")
-        print(sep)
-        print(f"{'ИТОГО':<10} {total:>6.2f}% {total_elapsed:>7.1f}s  {total_in:>10,} {total_out:>10,} {total_think:>12,}")
-        print(sep)
+        is_multi = isinstance(EFFECTIVE_MODEL, ModelRouter)
+
+        if is_multi:
+            W = 140
+            sep = "=" * W
+            print(f"\n{sep}")
+            print(f"{'ИТОГОВАЯ СТАТИСТИКА (multi-model)':^{W}}")
+            print(sep)
+            print(f"{'Задание':<10} {'Оценка':>7} {'Время':>8}  {'Вход(tok)':>10} {'Выход(tok)':>10} {'Думать(~tok)':>12}  {'Модель':<34}  Проблемы")
+            print("-" * W)
+            model_totals: dict[str, dict] = {}
+            for task_id, score, detail, elapsed, ts in scores:
+                issues = "; ".join(detail) if score < 1.0 else "—"
+                in_t = ts.get("input_tokens", 0)
+                out_t = ts.get("output_tokens", 0)
+                think_t = ts.get("thinking_tokens", 0)
+                m = ts.get("model_used", MODEL_ID)
+                m_short = m.split("/")[-1] if "/" in m else m
+                print(f"{task_id:<10} {score:>7.2f} {elapsed:>7.1f}s  {in_t:>10,} {out_t:>10,} {think_t:>12,}  {m_short:<34}  {issues}")
+                if m not in model_totals:
+                    model_totals[m] = {"in": 0, "out": 0, "think": 0, "count": 0}
+                model_totals[m]["in"] += in_t
+                model_totals[m]["out"] += out_t
+                model_totals[m]["think"] += think_t
+                model_totals[m]["elapsed"] = model_totals[m].get("elapsed", 0) + elapsed
+                model_totals[m]["count"] += 1
+            n = len(scores)
+            avg_elapsed = total_elapsed / n if n else 0
+            avg_in = total_in // n if n else 0
+            avg_out = total_out // n if n else 0
+            avg_think = total_think // n if n else 0
+            print(sep)
+            print(f"{'ИТОГО':<10} {total:>6.2f}% {total_elapsed:>7.1f}s  {total_in:>10,} {total_out:>10,} {total_think:>12,}")
+            print(f"{'СРЕДНЕЕ':<10} {'':>7} {avg_elapsed:>7.1f}s  {avg_in:>10,} {avg_out:>10,} {avg_think:>12,}")
+            print(sep)
+            if len(model_totals) > 1:
+                print(f"\n{'─' * 80}")
+                print(f"{'По моделям:'}")
+                print(f"{'─' * 80}")
+                print(f"  {'Модель':<35} {'Задач':>5}  {'Вх.всего':>10}  {'Вх.ср.':>10}  {'Вых.ср.':>9}  {'Думать.ср.':>10}")
+                print(f"  {'─' * 78}")
+                for m, mt in sorted(model_totals.items()):
+                    m_short = m.split("/")[-1] if "/" in m else m
+                    cnt = mt["count"]
+                    avg_i = mt["in"] // cnt if cnt else 0
+                    avg_o = mt["out"] // cnt if cnt else 0
+                    avg_k = mt["think"] // cnt if cnt else 0
+                    avg_e = mt.get("elapsed", 0) / cnt if cnt else 0
+                    print(f"  {m_short:<35} {cnt:>5}  {mt['in']:>10,}  {avg_i:>10,}  {avg_o:>9,}  {avg_k:>10,}  {avg_e:>6.1f}s/задачу")
+        else:
+            W = 105
+            sep = "=" * W
+            print(f"\n{sep}")
+            print(f"{'ИТОГОВАЯ СТАТИСТИКА':^{W}}")
+            print(f"{'Model: ' + MODEL_ID:^{W}}")
+            print(sep)
+            print(f"{'Задание':<10} {'Оценка':>7} {'Время':>8}  {'Вход(tok)':>10} {'Выход(tok)':>10} {'Думать(~tok)':>12}  Проблемы")
+            print("-" * W)
+            for task_id, score, detail, elapsed, ts in scores:
+                issues = "; ".join(detail) if score < 1.0 else "—"
+                in_t = ts.get("input_tokens", 0)
+                out_t = ts.get("output_tokens", 0)
+                think_t = ts.get("thinking_tokens", 0)
+                print(f"{task_id:<10} {score:>7.2f} {elapsed:>7.1f}s  {in_t:>10,} {out_t:>10,} {think_t:>12,}  {issues}")
+            n = len(scores)
+            avg_elapsed = total_elapsed / n if n else 0
+            avg_in = total_in // n if n else 0
+            avg_out = total_out // n if n else 0
+            avg_think = total_think // n if n else 0
+            print(sep)
+            print(f"{'ИТОГО':<10} {total:>6.2f}% {total_elapsed:>7.1f}s  {total_in:>10,} {total_out:>10,} {total_think:>12,}")
+            print(f"{'СРЕДНЕЕ':<10} {'':>7} {avg_elapsed:>7.1f}s  {avg_in:>10,} {avg_out:>10,} {avg_think:>12,}")
+            print(sep)
 
 
 if __name__ == "__main__":
