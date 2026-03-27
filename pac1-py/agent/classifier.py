@@ -78,7 +78,12 @@ def classify_task_llm(task_text: str, model: str, model_config: dict) -> str:
     FIX-82: JSON regex-extraction fallback if json.loads fails."""
     user_msg = f"Task: {task_text[:150]}"  # FIX-81: 600→150 to avoid injection content
     try:
-        raw = call_llm_raw(_CLASSIFY_SYSTEM, user_msg, model, model_config, max_tokens=200, think=False)  # FIX-84: disable think + larger budget
+        # FIX-87: thinking models (ollama_think=True) cannot disable think and need large budget;
+        # non-thinking models use think=False + small budget (enough for short JSON answer).
+        _needs_think = bool(model_config.get("ollama_think"))
+        _max_tok = 2000 if _needs_think else 200
+        _think_param: bool | None = None if _needs_think else False  # None = use cfg (True); False = disable
+        raw = call_llm_raw(_CLASSIFY_SYSTEM, user_msg, model, model_config, max_tokens=_max_tok, think=_think_param)
         if not raw:  # FIX-79: catch both None and "" (empty string after retry exhaustion)
             print("[MODEL_ROUTER][FIX-75] All LLM tiers failed or empty, falling back to regex")
             return classify_task(task_text)
