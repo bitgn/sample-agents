@@ -78,7 +78,7 @@ def classify_task_llm(task_text: str, model: str, model_config: dict) -> str:
     FIX-82: JSON regex-extraction fallback if json.loads fails."""
     user_msg = f"Task: {task_text[:150]}"  # FIX-81: 600→150 to avoid injection content
     try:
-        raw = call_llm_raw(_CLASSIFY_SYSTEM, user_msg, model, model_config, max_tokens=50)
+        raw = call_llm_raw(_CLASSIFY_SYSTEM, user_msg, model, model_config, max_tokens=200, think=False)  # FIX-84: disable think + larger budget
         if not raw:  # FIX-79: catch both None and "" (empty string after retry exhaustion)
             print("[MODEL_ROUTER][FIX-75] All LLM tiers failed or empty, falling back to regex")
             return classify_task(task_text)
@@ -107,6 +107,7 @@ class ModelRouter:
     think: str
     tool: str
     long_context: str
+    classifier: str = ""  # FIX-86: model for LLM classification; empty = use default
     configs: dict[str, dict] = field(default_factory=dict)
 
     def _select_model(self, task_type: str) -> str:
@@ -126,7 +127,9 @@ class ModelRouter:
     def resolve_llm(self, task_text: str) -> tuple[str, dict, str]:
         """FIX-75: Use default model LLM to classify task, then return (model_id, config, task_type).
         Falls back to regex-based resolve() if LLM classification fails."""
-        task_type = classify_task_llm(task_text, self.default, self.configs.get(self.default, {}))
+        # FIX-86: use dedicated classifier model if configured, else fall back to default
+        _cls_model = self.classifier or self.default
+        task_type = classify_task_llm(task_text, _cls_model, self.configs.get(_cls_model, {}))
         model_id = self._select_model(task_type)
         print(f"[MODEL_ROUTER][FIX-75] LLM type={task_type} → model={model_id}")
         return model_id, self.configs.get(model_id, {}), task_type

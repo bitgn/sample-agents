@@ -197,6 +197,7 @@ def call_llm_raw(
     model: str,
     cfg: dict,
     max_tokens: int = 20,
+    think: bool | None = None,  # FIX-84: None=use cfg, False=disable, True=enable
 ) -> str | None:
     """FIX-76: Lightweight LLM call with 3-tier routing and FIX-27 retry.
     Returns raw text (think blocks stripped), or None if all tiers fail.
@@ -235,8 +236,8 @@ def call_llm_raw(
                 print(f"[FIX-76][Anthropic] Error: {e}")
                 break
 
-    # --- Tier 2: OpenRouter (skip local qwen3.5: models) ---
-    if openrouter_client is not None and not model.startswith("qwen3.5:"):
+    # --- Tier 2: OpenRouter (skip Ollama-format models) ---
+    if openrouter_client is not None and not is_ollama_model(model):  # FIX-83
         so_mode = probe_structured_output(openrouter_client, model, hint=cfg.get("response_format_hint"))
         rf = {"type": "json_object"} if so_mode == "json_object" else None
         for attempt in range(4):
@@ -263,14 +264,20 @@ def call_llm_raw(
 
     # --- Tier 3: Ollama (local fallback) ---
     ollama_model = cfg.get("ollama_model") or os.environ.get("OLLAMA_MODEL", model)
+    # FIX-84: explicit think= overrides cfg; None means use cfg default
+    _think_flag = think if think is not None else cfg.get("ollama_think")
+    _ollama_extra: dict | None = {"think": _think_flag} if _think_flag is not None else None
     for attempt in range(4):
         try:
-            resp = ollama_client.chat.completions.create(
+            _create_kw: dict = dict(
                 model=ollama_model,
                 max_tokens=max_tokens,
                 response_format={"type": "json_object"},
                 messages=msgs,
             )
+            if _ollama_extra:
+                _create_kw["extra_body"] = _ollama_extra
+            resp = ollama_client.chat.completions.create(**_create_kw)
             raw = _THINK_RE.sub("", resp.choices[0].message.content or "").strip()
             if not raw:
                 if attempt < 3:
@@ -310,6 +317,13 @@ def get_anthropic_model_id(model: str) -> str:
     """Map alias (e.g. 'anthropic/claude-haiku-4.5') to Anthropic API model ID."""
     clean = model.removeprefix("anthropic/").lower()
     return _ANTHROPIC_MODEL_MAP.get(clean, clean)
+
+
+def is_ollama_model(model: str) -> bool:
+    """FIX-83: True for Ollama-format models (name:tag, no slash).
+    Examples: qwen3.5:9b, deepseek-v3.1:671b-cloud, qwen3.5:cloud.
+    These must be routed directly to Ollama tier, skipping OpenRouter."""
+    return ":" in model and "/" not in model
 
 
 # ---------------------------------------------------------------------------
