@@ -95,7 +95,7 @@ def main() -> None:
 
             print(f"{CLI_BLUE}{trial.instruction}{CLI_CLR}\n{'-' * 80}")
 
-            token_stats: dict = {"input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0}
+            token_stats: dict = {"input_tokens": 0, "output_tokens": 0}
             try:
                 token_stats = run_agent(EFFECTIVE_MODEL, trial.harness_url, trial.instruction,
                                         model_config=MODEL_CONFIGS.get(MODEL_ID))
@@ -124,88 +124,56 @@ def main() -> None:
         total_elapsed = time.time() - run_start
         print(f"FINAL: {total:0.2f}%")
 
-        total_in = total_out = total_think = 0
+        total_in = total_out = 0
         for *_, ts in scores:
             total_in += ts.get("input_tokens", 0)
             total_out += ts.get("output_tokens", 0)
-            total_think += ts.get("thinking_tokens", 0)
 
         # Summary table for log (no color codes)
-        is_multi = True  # FIX-88: always ModelRouter → always show Тип/Модель columns
-
-        if is_multi:
-            W = 155
-            sep = "=" * W
-            print(f"\n{sep}")
-            _title = "ИТОГОВАЯ СТАТИСТИКА (multi-model)" if _is_multi else "ИТОГОВАЯ СТАТИСТИКА"
-            print(f"{_title:^{W}}")
-            print(sep)
-            print(f"{'Задание':<10} {'Оценка':>7} {'Время':>8}  {'Вход(tok)':>10} {'Выход(tok)':>10} {'Думать(~tok)':>12}  {'Тип':<11} {'Модель':<34}  Проблемы")
-            print("-" * W)
-            model_totals: dict[str, dict] = {}
-            for task_id, score, detail, elapsed, ts in scores:
-                issues = "; ".join(detail) if score < 1.0 else "—"
-                in_t = ts.get("input_tokens", 0)
-                out_t = ts.get("output_tokens", 0)
-                think_t = ts.get("thinking_tokens", 0)
-                m = ts.get("model_used", MODEL_ID)
+        W = 140
+        sep = "=" * W
+        print(f"\n{sep}")
+        _title = "ИТОГОВАЯ СТАТИСТИКА (multi-model)" if _is_multi else "ИТОГОВАЯ СТАТИСТИКА"
+        print(f"{_title:^{W}}")
+        print(sep)
+        print(f"{'Задание':<10} {'Оценка':>7} {'Время':>8}  {'Вход(tok)':>10} {'Выход(tok)':>10}  {'Тип':<11} {'Модель':<34}  Проблемы")
+        print("-" * W)
+        model_totals: dict[str, dict] = {}
+        for task_id, score, detail, elapsed, ts in scores:
+            issues = "; ".join(detail) if score < 1.0 else "—"
+            in_t = ts.get("input_tokens", 0)
+            out_t = ts.get("output_tokens", 0)
+            m = ts.get("model_used", MODEL_ID)
+            m_short = m.split("/")[-1] if "/" in m else m
+            t_type = ts.get("task_type", "—")
+            print(f"{task_id:<10} {score:>7.2f} {elapsed:>7.1f}s  {in_t:>10,} {out_t:>10,}  {t_type:<11} {m_short:<34}  {issues}")
+            if m not in model_totals:
+                model_totals[m] = {"in": 0, "out": 0, "count": 0}
+            model_totals[m]["in"] += in_t
+            model_totals[m]["out"] += out_t
+            model_totals[m]["elapsed"] = model_totals[m].get("elapsed", 0) + elapsed
+            model_totals[m]["count"] += 1
+        n = len(scores)
+        avg_elapsed = total_elapsed / n if n else 0
+        avg_in = total_in // n if n else 0
+        avg_out = total_out // n if n else 0
+        print(sep)
+        print(f"{'ИТОГО':<10} {total:>6.2f}% {total_elapsed:>7.1f}s  {total_in:>10,} {total_out:>10,}  {'':11} {'':34}")
+        print(f"{'СРЕДНЕЕ':<10} {'':>7} {avg_elapsed:>7.1f}s  {avg_in:>10,} {avg_out:>10,}  {'':11} {'':34}")
+        print(sep)
+        if len(model_totals) > 1:
+            print(f"\n{'─' * 75}")
+            print("По моделям:")
+            print(f"{'─' * 75}")
+            print(f"  {'Модель':<35} {'Задач':>5}  {'Вх.всего':>10}  {'Вх.ср.':>10}  {'Вых.ср.':>9}  {'с/задачу':>9}")
+            print(f"  {'─' * 73}")
+            for m, mt in sorted(model_totals.items()):
                 m_short = m.split("/")[-1] if "/" in m else m
-                t_type = ts.get("task_type", "—")
-                print(f"{task_id:<10} {score:>7.2f} {elapsed:>7.1f}s  {in_t:>10,} {out_t:>10,} {think_t:>12,}  {t_type:<11} {m_short:<34}  {issues}")
-                if m not in model_totals:
-                    model_totals[m] = {"in": 0, "out": 0, "think": 0, "count": 0}
-                model_totals[m]["in"] += in_t
-                model_totals[m]["out"] += out_t
-                model_totals[m]["think"] += think_t
-                model_totals[m]["elapsed"] = model_totals[m].get("elapsed", 0) + elapsed
-                model_totals[m]["count"] += 1
-            n = len(scores)
-            avg_elapsed = total_elapsed / n if n else 0
-            avg_in = total_in // n if n else 0
-            avg_out = total_out // n if n else 0
-            avg_think = total_think // n if n else 0
-            print(sep)
-            print(f"{'ИТОГО':<10} {total:>6.2f}% {total_elapsed:>7.1f}s  {total_in:>10,} {total_out:>10,} {total_think:>12,}  {'':11} {'':34}")
-            print(f"{'СРЕДНЕЕ':<10} {'':>7} {avg_elapsed:>7.1f}s  {avg_in:>10,} {avg_out:>10,} {avg_think:>12,}  {'':11} {'':34}")
-            print(sep)
-            if len(model_totals) > 1:
-                print(f"\n{'─' * 80}")
-                print(f"{'По моделям:'}")
-                print(f"{'─' * 80}")
-                print(f"  {'Модель':<35} {'Задач':>5}  {'Вх.всего':>10}  {'Вх.ср.':>10}  {'Вых.ср.':>9}  {'Думать.ср.':>10}")
-                print(f"  {'─' * 78}")
-                for m, mt in sorted(model_totals.items()):
-                    m_short = m.split("/")[-1] if "/" in m else m
-                    cnt = mt["count"]
-                    avg_i = mt["in"] // cnt if cnt else 0
-                    avg_o = mt["out"] // cnt if cnt else 0
-                    avg_k = mt["think"] // cnt if cnt else 0
-                    avg_e = mt.get("elapsed", 0) / cnt if cnt else 0
-                    print(f"  {m_short:<35} {cnt:>5}  {mt['in']:>10,}  {avg_i:>10,}  {avg_o:>9,}  {avg_k:>10,}  {avg_e:>6.1f}s/задачу")
-        else:
-            W = 105
-            sep = "=" * W
-            print(f"\n{sep}")
-            print(f"{'ИТОГОВАЯ СТАТИСТИКА':^{W}}")
-            print(f"{'Model: ' + MODEL_ID:^{W}}")
-            print(sep)
-            print(f"{'Задание':<10} {'Оценка':>7} {'Время':>8}  {'Вход(tok)':>10} {'Выход(tok)':>10} {'Думать(~tok)':>12}  Проблемы")
-            print("-" * W)
-            for task_id, score, detail, elapsed, ts in scores:
-                issues = "; ".join(detail) if score < 1.0 else "—"
-                in_t = ts.get("input_tokens", 0)
-                out_t = ts.get("output_tokens", 0)
-                think_t = ts.get("thinking_tokens", 0)
-                print(f"{task_id:<10} {score:>7.2f} {elapsed:>7.1f}s  {in_t:>10,} {out_t:>10,} {think_t:>12,}  {issues}")
-            n = len(scores)
-            avg_elapsed = total_elapsed / n if n else 0
-            avg_in = total_in // n if n else 0
-            avg_out = total_out // n if n else 0
-            avg_think = total_think // n if n else 0
-            print(sep)
-            print(f"{'ИТОГО':<10} {total:>6.2f}% {total_elapsed:>7.1f}s  {total_in:>10,} {total_out:>10,} {total_think:>12,}")
-            print(f"{'СРЕДНЕЕ':<10} {'':>7} {avg_elapsed:>7.1f}s  {avg_in:>10,} {avg_out:>10,} {avg_think:>12,}")
-            print(sep)
+                cnt = mt["count"]
+                avg_i = mt["in"] // cnt if cnt else 0
+                avg_o = mt["out"] // cnt if cnt else 0
+                avg_e = mt.get("elapsed", 0) / cnt if cnt else 0
+                print(f"  {m_short:<35} {cnt:>5}  {mt['in']:>10,}  {avg_i:>10,}  {avg_o:>9,}  {avg_e:>8.1f}s")
 
 
 if __name__ == "__main__":

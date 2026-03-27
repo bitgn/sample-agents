@@ -381,7 +381,6 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
     listed_dirs: set[str] = set()
     total_in_tok = 0
     total_out_tok = 0
-    total_think_tok = 0
 
     # FIX-74: adaptive stall detection state
     _action_fingerprints: deque = deque(maxlen=6)
@@ -411,10 +410,9 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
         log = _compact_log(log, max_tool_pairs=5, preserve_prefix=preserve_prefix)
 
         # --- LLM call ---
-        job, elapsed_ms, in_tok, out_tok, think_tok = _call_llm(log, model, max_tokens, cfg)
+        job, elapsed_ms, in_tok, out_tok, _ = _call_llm(log, model, max_tokens, cfg)
         total_in_tok += in_tok
         total_out_tok += out_tok
-        total_think_tok += think_tok
 
         # JSON parse retry hint (for Ollama json_object mode)
         if job is None and not is_claude_model(model):
@@ -427,10 +425,9 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
                 'RULES: current_state=string, plan_remaining_steps_brief=array of strings, '
                 'task_completed=boolean (true/false not string), function=object with "tool" key inside.'
             )})
-            job, elapsed_ms, in_tok, out_tok, think_tok = _call_llm(log, model, max_tokens, cfg)
+            job, elapsed_ms, in_tok, out_tok, _ = _call_llm(log, model, max_tokens, cfg)
             total_in_tok += in_tok
             total_out_tok += out_tok
-            total_think_tok += think_tok
             log.pop()
 
         if job is None:
@@ -461,13 +458,12 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
             print(f"{CLI_YELLOW}[FIX-74][STALL] Detected: {_stall_hint[:120]}{CLI_CLR}")
             log.append({"role": "user", "content": f"[STALL HINT] {_stall_hint}"})
             _stall_hint_active = True
-            _job2, _, _i2, _o2, _t2 = _call_llm(log, model, max_tokens, cfg)
+            _job2, _, _i2, _o2, _ = _call_llm(log, model, max_tokens, cfg)
             log.pop()
             if _job2 is not None:
                 job = _job2
                 total_in_tok += _i2
                 total_out_tok += _o2
-                total_think_tok += _t2
                 action_name = job.function.__class__.__name__
                 action_args = job.function.model_dump_json()
                 _action_fingerprints[-1] = f"{action_name}:{action_args}"
@@ -570,4 +566,4 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
         # Inject result as a user message
         log.append({"role": "user", "content": f"Result of {action_name}: {txt}"})
 
-    return {"input_tokens": total_in_tok, "output_tokens": total_out_tok, "thinking_tokens": total_think_tok}
+    return {"input_tokens": total_in_tok, "output_tokens": total_out_tok}
