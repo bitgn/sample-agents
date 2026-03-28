@@ -94,6 +94,10 @@ _CLASSIFY_SYSTEM = (
 
 _VALID_TYPES = frozenset({TASK_THINK, TASK_LONG_CONTEXT, TASK_DEFAULT})
 
+# FIX-100: tracks whether the last classify_task_llm() call used LLM (True) or fell back to regex (False).
+# Set per-task; reclassify_with_prephase() skips expensive LLM retry when False.
+_classifier_llm_ok: bool = True
+
 
 def _task_fingerprint(task_text: str) -> frozenset[str]:
     """FIX-97: Extract keyword fingerprint for cache lookup."""
@@ -112,7 +116,9 @@ def classify_task_llm(task_text: str, model: str, model_config: dict,
     FIX-79: treat empty string same as None (empty response after retries).
     FIX-81: truncate to 150 chars — enough for task verb, avoids injection tail.
     FIX-82: JSON regex-extraction fallback if json.loads fails.
-    FIX-99: optional vault_hint appended to user message for post-prephase re-class."""
+    FIX-99: optional vault_hint appended to user message for post-prephase re-class.
+    FIX-100: sets _classifier_llm_ok flag — False on fallback, True on LLM success."""
+    global _classifier_llm_ok
     user_msg = f"Task: {task_text[:150]}"  # FIX-81: 600→150 to avoid injection content
     if vault_hint:  # FIX-99: add vault context when available
         user_msg += f"\nContext: {vault_hint}"
@@ -123,6 +129,7 @@ def classify_task_llm(task_text: str, model: str, model_config: dict,
         raw = call_llm_raw(_CLASSIFY_SYSTEM, user_msg, model, _cls_cfg)
         if not raw:  # FIX-79: catch both None and "" (empty string after retry exhaustion)
             print("[MODEL_ROUTER][FIX-75] All LLM tiers failed or empty, falling back to regex")
+            _classifier_llm_ok = False
             return classify_task(task_text)
         # Try strict JSON parse first
         try:
@@ -135,10 +142,12 @@ def classify_task_llm(task_text: str, model: str, model_config: dict,
                 print(f"[MODEL_ROUTER][FIX-82] Extracted type via regex from: {raw!r}")
         if detected in _VALID_TYPES:
             print(f"[MODEL_ROUTER][FIX-75] LLM classified task as '{detected}'")
+            _classifier_llm_ok = True
             return detected
         print(f"[MODEL_ROUTER][FIX-75] LLM returned unknown type '{detected}', falling back to regex")
     except Exception as exc:
         print(f"[MODEL_ROUTER][FIX-75] LLM classification failed ({exc}), falling back to regex")
+    _classifier_llm_ok = False
     return classify_task(task_text)
 
 
@@ -169,12 +178,15 @@ class ModelRouter:
     def resolve_llm(self, task_text: str) -> tuple[str, dict, str]:
         """FIX-75: Use classifier model to classify task, then return (model_id, config, task_type).
         FIX-97: Cache classification results by keyword fingerprint — skip LLM on cache hit."""
+        global _classifier_llm_ok
         # FIX-97: check keyword fingerprint cache before calling LLM
         fp = _task_fingerprint(task_text)
         if fp:
             if fp in self._type_cache:
                 cached = self._type_cache[fp]
                 print(f"[MODEL_ROUTER][FIX-97] Cache hit {set(fp)} → '{cached}'")
+                # FIX-100: reset flag — cache hit means LLM worked before; don't carry stale False
+                _classifier_llm_ok = True
                 model_id = self._select_model(cached)
                 return model_id, self.configs.get(model_id, {}), cached
         task_type = classify_task_llm(task_text, self.classifier, self.configs.get(self.classifier, {}))
@@ -240,8 +252,9 @@ def reclassify_with_prephase(
         )
         return TASK_LONG_CONTEXT
 
-    # FIX-99: LLM re-class with vault context (only if classifier model provided)
-    if model:
+    # FIX-99 + FIX-100: LLM re-class with vault context (only if classifier model provided
+    # AND last LLM classify actually succeeded — skip if Ollama was empty/unavailable)
+    if model and _classifier_llm_ok:
         vault_hint = (
             f"vault has {file_count} files, "
             f"bulk-scope: {'yes' if is_bulk else 'no'}"
@@ -255,5 +268,7 @@ def reclassify_with_prephase(
                 f"'{task_type}' → '{refined}'"
             )
             return refined
+    elif model:
+        print("[MODEL_ROUTER][FIX-100] Skipping LLM re-class — classifier was unavailable")
 
     return task_type

@@ -84,6 +84,20 @@ def _render_tree_result(result, root_path: str = "/", level: int = 2) -> str:
     return f"tree{level_arg} {root_path}\n{body}"
 
 
+# FIX-102: few-shot user→assistant pair — strongest signal for JSON-only output.
+# Placed immediately after system prompt so the model sees its own expected format
+# before any task context. More reliable than response_format for Ollama-proxied
+# cloud models that ignore json_object enforcement.
+# NOTE: generic path used intentionally — discovery-first principle (no vault-specific hardcoding).
+_FEW_SHOT_USER = "Example: what files are in the notes folder?"
+_FEW_SHOT_ASSISTANT = (
+    '{"current_state":"listing notes folder to identify files",'
+    '"plan_remaining_steps_brief":["list /notes","act on result"],'
+    '"task_completed":false,'
+    '"function":{"tool":"list","path":"/notes"}}'
+)
+
+
 def run_prephase(
     vm: PcmRuntimeClientSync,
     task_text: str,
@@ -98,6 +112,8 @@ def run_prephase(
 
     log: list = [
         {"role": "system", "content": system_prompt_text},
+        {"role": "user", "content": _FEW_SHOT_USER},
+        {"role": "assistant", "content": _FEW_SHOT_ASSISTANT},
         {"role": "user", "content": task_text},
     ]
 
