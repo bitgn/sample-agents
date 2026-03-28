@@ -117,9 +117,13 @@ Key env vars:
 - `OLLAMA_BASE_URL`, `OLLAMA_MODEL` — local Ollama overrides
 
 Per-model config defined in `main.py` `MODEL_CONFIGS` dict:
-- `max_completion_tokens`, `thinking_budget`, `response_format_hint`, `ollama_think`
+- `max_completion_tokens`, `thinking_budget`, `response_format_hint`
 
 ## Fix numbering
 
-Current fix counter: **Fix-93** (FIX-94 is next).
+Current fix counter: **Fix-98** (FIX-99 is next).
+- FIX-94: `observation` field in NextStep — verbalize last tool result before acting (Variant A)
+- FIX-95: `done_this_step` replaces `current_state` — tracks completed work per step (Variant B)
+- FIX-96: `precondition` field in NextStep — mandatory verification before write/delete (Variant C)
+- FIX-98: structured rule engine in `classify_task()` — explicit `_Rule` dataclass matrix with must/must_not conditions replacing bare regex chain
 Each hardcoded fix gets a sequential label `FIX-N` in code comments.

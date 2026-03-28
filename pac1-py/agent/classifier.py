@@ -20,31 +20,62 @@ TASK_THINK = "think"
 TASK_LONG_CONTEXT = "longContext"
 
 
-_THINK_WORDS = re.compile(
-    r"\b(distill|analyze|analyse|summarize|summarise|compare|evaluate|review|infer|"
-    r"explain|interpret|assess|what does|what is the|why does|how does|what should)\b",
-    re.IGNORECASE,
-)
-
-_LONG_CONTEXT_WORDS = re.compile(
-    r"\b(all files|every file|batch|multiple files|all cards|all threads|each file)\b",
-    re.IGNORECASE,
-)
-
 _PATH_RE = re.compile(r"/[a-zA-Z0-9_\-\.]+")
+
+# FIX-98: structured rule engine — explicit bulk and think patterns
+_BULK_RE = re.compile(
+    r"\b(all files|every file|batch|multiple files|all cards|all threads|each file"
+    r"|remove all|delete all|discard all|clean all)\b",
+    re.IGNORECASE,
+)
+
+_THINK_WORDS = re.compile(
+    r"\b(distill|analyze|analyse|summarize|summarise|compare|evaluate|review|infer"
+    r"|explain|interpret|assess|what does|what is the|why does|how does|what should)\b",
+    re.IGNORECASE,
+)
+
+# Keep _LONG_CONTEXT_WORDS as alias for backward compatibility
+_LONG_CONTEXT_WORDS = _BULK_RE
+
+
+@dataclass
+class _Rule:
+    must: list[re.Pattern]
+    must_not: list[re.Pattern]
+    result: str
+    label: str  # for logging
+
+
+# FIX-98: priority-ordered rule matrix (longContext > think > default)
+_RULE_MATRIX: list[_Rule] = [
+    # Rule 1: bulk-scope keywords → longContext
+    _Rule(
+        must=[_BULK_RE],
+        must_not=[],
+        result=TASK_LONG_CONTEXT,
+        label="bulk-keywords",
+    ),
+    # Rule 2: reasoning keywords AND NOT bulk → think
+    _Rule(
+        must=[_THINK_WORDS],
+        must_not=[_BULK_RE],
+        result=TASK_THINK,
+        label="think-keywords",
+    ),
+]
 
 
 def classify_task(task_text: str) -> str:
-    """Classify task text into one of: default, think, longContext."""
-    # longContext: many file paths OR explicit bulk keywords
-    path_count = len(_PATH_RE.findall(task_text))
-    if path_count >= 3 or _LONG_CONTEXT_WORDS.search(task_text):
+    """FIX-98: structured rule engine (replaces bare regex chain).
+    Priority: 3+-paths > bulk-keywords (longContext) > think-keywords > default."""
+    # path_count cannot be expressed as regex rule — handle separately
+    if len(_PATH_RE.findall(task_text)) >= 3:
         return TASK_LONG_CONTEXT
-
-    # think: analysis/reasoning keywords
-    if _THINK_WORDS.search(task_text):
-        return TASK_THINK
-
+    for rule in _RULE_MATRIX:
+        if (all(r.search(task_text) for r in rule.must)
+                and not any(r.search(task_text) for r in rule.must_not)):
+            return rule.result
     return TASK_DEFAULT
 
 
@@ -64,6 +95,16 @@ _CLASSIFY_SYSTEM = (
 _VALID_TYPES = frozenset({TASK_THINK, TASK_LONG_CONTEXT, TASK_DEFAULT})
 
 
+def _task_fingerprint(task_text: str) -> frozenset[str]:
+    """FIX-97: Extract keyword fingerprint for cache lookup."""
+    words: set[str] = set()
+    for m in _THINK_WORDS.finditer(task_text):
+        words.add(m.group(0).lower())
+    for m in _LONG_CONTEXT_WORDS.finditer(task_text):
+        words.add(m.group(0).lower())
+    return frozenset(words)
+
+
 def classify_task_llm(task_text: str, model: str, model_config: dict) -> str:
     """FIX-75: Use LLM (classifier model) to classify task type before agent start.
     Uses FIX-76 call_llm_raw() for 3-tier routing + retry; falls back to regex.
@@ -71,13 +112,11 @@ def classify_task_llm(task_text: str, model: str, model_config: dict) -> str:
     FIX-81: truncate to 150 chars — enough for task verb, avoids injection tail.
     FIX-82: JSON regex-extraction fallback if json.loads fails."""
     user_msg = f"Task: {task_text[:150]}"  # FIX-81: 600→150 to avoid injection content
+    # FIX-94: cap classifier tokens — output is always {"type":"X"} (~8 tokens);
+    # 512 leaves room for implicit thinking chains without wasting full model budget.
+    _cls_cfg = {**model_config, "max_completion_tokens": min(model_config.get("max_completion_tokens", 512), 512)}
     try:
-        # FIX-87: thinking models (ollama_think=True) cannot disable think and need large budget;
-        # non-thinking models use think=False + small budget (enough for short JSON answer).
-        _needs_think = bool(model_config.get("ollama_think"))
-        _max_tok = 2000 if _needs_think else 200
-        _think_param: bool | None = None if _needs_think else False  # None = use cfg (True); False = disable
-        raw = call_llm_raw(_CLASSIFY_SYSTEM, user_msg, model, model_config, max_tokens=_max_tok, think=_think_param)
+        raw = call_llm_raw(_CLASSIFY_SYSTEM, user_msg, model, _cls_cfg)
         if not raw:  # FIX-79: catch both None and "" (empty string after retry exhaustion)
             print("[MODEL_ROUTER][FIX-75] All LLM tiers failed or empty, falling back to regex")
             return classify_task(task_text)
@@ -108,6 +147,7 @@ class ModelRouter:
     # FIX-90: classifier is a first-class routing tier — dedicated model for classification only
     classifier: str
     configs: dict[str, dict] = field(default_factory=dict)
+    _type_cache: dict[frozenset[str], str] = field(default_factory=dict)
 
     def _select_model(self, task_type: str) -> str:
         return {
