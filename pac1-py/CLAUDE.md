@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Target directory: `pac1-py/` only
 - Do NOT modify `.secrets`
 - Use hardcode pattern when extending agent behavior
+- Never edit pac1-py/.env and pac1-py/.secrets
 
 ## Commands
 
@@ -121,11 +122,16 @@ Per-model config defined in `main.py` `MODEL_CONFIGS` dict:
 
 ## Fix numbering
 
-Current fix counter: **Fix-99** (FIX-100 is next).
+Current fix counter: **Fix-104** (FIX-105 is next).
+- FIX-103: seq.json semantics clarified in prompt — id N = next free slot, use as-is (do NOT add 1 before writing)
+- FIX-104: INBOX WORKFLOW step 2 — check "From:" field first; no From: → OUTCOME_NONE_CLARIFICATION immediately
 - FIX-94: `observation` field in NextStep — verbalize last tool result before acting (Variant A)
 - FIX-95: `done_this_step` replaces `current_state` — tracks completed work per step (Variant B)
 - FIX-96: `precondition` field in NextStep — mandatory verification before write/delete (Variant C)
 - FIX-97: keyword-fingerprint cache in `ModelRouter._type_cache` — skip LLM classify on cache hit
 - FIX-98: structured rule engine in `classify_task()` — explicit `_Rule` dataclass matrix with must/must_not conditions replacing bare regex chain
 - FIX-99: two-phase LLM re-class with vault context — `classify_task_llm()` gains optional `vault_hint`; `reclassify_with_prephase()` passes vault file count + bulk flag to LLM after prephase
+- FIX-100: `_classifier_llm_ok` flag — `classify_task_llm()` tracks LLM success; `reclassify_with_prephase()` skips Ollama retry when flag is False
+- FIX-101: JSON bracket-extraction fallback in `_call_openai_tier()` — try `_extract_json_from_text()` before breaking on JSON decode failure (eliminates most loop.py retries)
+- FIX-102: few-shot user→assistant pair in `prephase.py` — injected after system prompt; strongest signal for JSON-only output from Ollama-proxied cloud models
 Each hardcoded fix gets a sequential label `FIX-N` in code comments.
