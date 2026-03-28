@@ -1,6 +1,6 @@
 ---
 # pac1-py Architecture Overview
-# Generated: 2026-03-26
+# Generated: 2026-03-28
 # Architecture-documentation skill v1.3.0
 
 metadata:
@@ -16,7 +16,7 @@ metadata:
     - three-tier-fallback
     - discovery-first
   requires_python: ">=3.12"
-  fix_counter: 77  # FIX-78 is next
+  fix_counter: 102  # FIX-103 is next
 
 components:
   - id: main
@@ -37,8 +37,10 @@ components:
     layer: business
     description: >
       Universal agent entry point. Creates PcmRuntimeClientSync, resolves
-      model (via ModelRouter.resolve_llm or direct), runs prephase then
-      loop, returns token stats dict.
+      model via ModelRouter.resolve_llm(), runs prephase, then calls
+      reclassify_with_prephase() to refine task type using vault context
+      (FIX-89/99), optionally switches model, runs main loop, returns
+      token stats dict including model_used and task_type.
 
   - id: classifier
     name: Task Classifier & ModelRouter
@@ -46,9 +48,14 @@ components:
     path: agent/classifier.py
     layer: business
     description: >
-      Classifies task text into one of: default / think / tool / longContext
-      using regex patterns (classify_task) or an LLM call (classify_task_llm,
-      FIX-75). ModelRouter selects the appropriate model ID per task type.
+      Classifies task text into one of: default / think / longContext using
+      a structured rule engine (classify_task, FIX-98) or an LLM call
+      (classify_task_llm, FIX-75). Keyword-fingerprint cache skips LLM on
+      repeated patterns (FIX-97). Post-prephase reclassification with vault
+      context (reclassify_with_prephase, FIX-89/99). ModelRouter routes each
+      task type to a dedicated model; classifier is a first-class routing
+      tier (FIX-90). _classifier_llm_ok flag prevents stale LLM retries
+      (FIX-100).
 
   - id: dispatch
     name: LLM Dispatch & PCM Bridge
@@ -71,7 +78,9 @@ components:
       30-step agentic loop. Per step: compact log, call LLM (_call_llm),
       parse NextStep, run adaptive stall detection (FIX-74), dispatch tool
       to PCM runtime, inject result back into log. Handles task timeout,
-      JSON retry hints, and FIX-63/71/73/W1-W4 hardcoded fixes.
+      JSON retry hints, and FIX-63/71/73/77/101/W1-W4 hardcoded fixes.
+      FIX-101: bracket-extraction JSON fallback in _call_openai_tier when
+      model returns text-prefixed JSON despite response_format.
 
   - id: prephase
     name: Pre-phase Explorer
@@ -81,8 +90,10 @@ components:
     description: >
       Pre-loop phase: tree -L 2 /, reads AGENTS.MD (tries three candidate
       paths), optionally filters AGENTS.MD to relevant sections, injects
-      vault layout + context into the message log. Returns PrephaseResult
-      with log and preserve_prefix (never compacted).
+      vault layout + context into the message log. FIX-102: injects a
+      few-shot user→assistant pair immediately after system prompt — strongest
+      signal for JSON-only output from Ollama-proxied cloud models. Returns
+      PrephaseResult with log and preserve_prefix (never compacted).
 
   - id: prompt
     name: System Prompt
@@ -242,8 +253,20 @@ quality_attributes:
   - attribute: Correctness
     description: >
       FIX-77 injects missing task_completed field; FIX-W1/W2 auto-wrap bare
-      JSON; FIX-W3 truncates over-length plan arrays. JSON retry hint on
-      parse failure for non-Claude models.
+      JSON; FIX-W3 truncates over-length plan arrays; FIX-101 bracket-extraction
+      fallback when model returns text-prefixed JSON. JSON retry hint on parse
+      failure for non-Claude models. FIX-102 few-shot pair enforces JSON-only
+      output for Ollama-proxied cloud models.
+
+  - attribute: Classification-accuracy
+    description: >
+      FIX-98 structured rule engine with explicit _Rule matrix (must/must_not
+      conditions). FIX-97 keyword-fingerprint cache avoids redundant LLM calls.
+      FIX-89 rule-based longContext upgrade when vault is large (8+ files) and
+      task is bulk-scoped. FIX-99 post-prephase LLM re-class with vault hint.
+      FIX-100 skips LLM re-class when classifier was unavailable. FIX-82 JSON
+      regex-extraction fallback when LLM returns malformed JSON.
+      FIX-90 classifier is a dedicated routing tier in ModelRouter.
 
   - attribute: Security
     description: >

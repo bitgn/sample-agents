@@ -1,15 +1,15 @@
 # pac1-py Architecture Documentation
 
-Generated: 2026-03-26 | Complexity: **Standard** | Fix counter: FIX-77 (FIX-78 is next)
+Generated: 2026-03-28 | Complexity: **Standard** | Fix counter: FIX-102 (FIX-103 is next)
 
 ## Overview
 
 **pac1-py** is a file-system agent for the BitGN PAC1 benchmark. It manages a personal knowledge vault through the PCM runtime (9 tools: tree/find/search/list/read/write/delete/mkdir/move + report_completion) using a discovery-first prompt strategy and a three-tier LLM dispatch stack.
 
 **Benchmark results:**
-- `anthropic/claude-sonnet-4.6` — 100.00% on bitgn/pac1-dev
-- `qwen/qwen3.5-9b` (OpenRouter) — 100.00% on bitgn/pac1-dev
-- `anthropic/claude-haiku-4.5` — ~97% on bitgn/pac1-dev
+- `anthropic/claude-sonnet-4.6` — 100.00% on bitgn/pac1-dev (stable, discovery-first prompt)
+- `qwen/qwen3.5-9b` (OpenRouter) — 100.00% on bitgn/pac1-dev (stable, discovery-first prompt)
+- `anthropic/claude-haiku-4.5` — ~97% on bitgn/pac1-dev (11 tasks, 2/3 iter at 100%)
 
 ## Files
 
@@ -24,13 +24,14 @@ Generated: 2026-03-26 | Complexity: **Standard** | Fix counter: FIX-77 (FIX-78 i
 
 ```
 main.py  →  run_agent() [__init__.py]
-              ├── ModelRouter.resolve_llm() [classifier.py]  ← FIX-75: LLM classification
-              ├── run_prephase() [prephase.py]               ← tree + AGENTS.MD + context
+              ├── ModelRouter.resolve_llm() [classifier.py]  ← FIX-75/97/98: LLM + cached classification
+              ├── run_prephase() [prephase.py]               ← few-shot + tree + AGENTS.MD + context (FIX-102)
+              ├── reclassify_with_prephase() [classifier.py] ← FIX-89/99: refine type with vault context
               └── run_loop() [loop.py]                       ← 30-step loop
                     ├── compact log (prefix + last 5 pairs)
                     ├── _call_llm() → NextStep [dispatch.py]
                     │     ├── Tier 1: Anthropic SDK (native thinking)
-                    │     ├── Tier 2: OpenRouter (FIX-27 retry)
+                    │     ├── Tier 2: OpenRouter (FIX-27 retry, FIX-101 bracket-extract)
                     │     └── Tier 3: Ollama (local fallback)
                     ├── stall detection [FIX-74]
                     └── dispatch tool → PcmRuntimeClientSync [bitgn/]
@@ -116,8 +117,18 @@ Three task-agnostic signals:
 2. Same path error 2+ times
 3. 6+ steps without write/delete/move/mkdir
 
+### Classifier Pipeline (FIX-89/97/98/99/100)
+Four-stage classification:
+1. Keyword-fingerprint cache lookup (FIX-97) — skip LLM on repeated patterns
+2. LLM classify via classifier model (FIX-75/82/90) — one of: think / longContext / default
+3. Post-prephase vault context re-class (FIX-89 rule-based, FIX-99 LLM) — upgrades type when vault is large
+4. FIX-100: skip LLM re-class if classifier was unavailable during initial call
+
+### Few-Shot Prephase Injection (FIX-102)
+A generic user→assistant example pair is injected immediately after system prompt in prephase. This is the strongest signal for enforcing JSON-only output from Ollama-proxied cloud models that ignore `response_format`.
+
 ### Hardcode Fix Pattern
-Each behavioral fix gets a sequential label `FIX-N` in code comments. Current counter: FIX-77.
+Each behavioral fix gets a sequential label `FIX-N` in code comments. Current counter: FIX-102.
 
 ## Components (8 total)
 

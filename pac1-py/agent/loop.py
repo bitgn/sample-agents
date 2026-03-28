@@ -162,10 +162,11 @@ def _call_openai_tier(
     label: str,
     extra_body: dict | None = None,
     response_format: dict | None = None,
-) -> tuple[NextStep | None, int, int, int, int]:
+) -> tuple[NextStep | None, int, int, int, int, int, int]:
     """Shared retry loop for OpenAI-compatible tiers (OpenRouter, Ollama).
     response_format=None means model does not support it — use text extraction fallback.
-    Returns (result, elapsed_ms, input_tokens, output_tokens, thinking_tokens)."""
+    Returns (result, elapsed_ms, input_tokens, output_tokens, thinking_tokens, eval_count, eval_ms).
+    eval_count/eval_ms are Ollama-native metrics (0 for non-Ollama); use for accurate gen tok/s."""
     for attempt in range(4):
         raw = ""
         elapsed_ms = 0
@@ -195,6 +196,17 @@ def _call_openai_tier(
         else:
             in_tok = getattr(getattr(resp, "usage", None), "prompt_tokens", 0)
             out_tok = getattr(getattr(resp, "usage", None), "completion_tokens", 0)
+            # Extract Ollama-native timing metrics from model_extra (ns → ms)
+            _me: dict = getattr(resp, "model_extra", None) or {}
+            _eval_count = int(_me.get("eval_count", 0) or 0)
+            _eval_ms    = int(_me.get("eval_duration", 0) or 0) // 1_000_000
+            _pr_count   = int(_me.get("prompt_eval_count", 0) or 0)
+            _pr_ms      = int(_me.get("prompt_eval_duration", 0) or 0) // 1_000_000
+            if _eval_ms > 0:
+                _gen_tps = _eval_count / (_eval_ms / 1000.0)
+                _pr_tps  = _pr_count  / max(_pr_ms, 1) * 1000.0
+                _ttft_ms = int(_me.get("load_duration", 0) or 0) // 1_000_000 + _pr_ms
+                print(f"{CLI_YELLOW}[{label}] ollama: gen={_gen_tps:.0f} tok/s  prompt={_pr_tps:.0f} tok/s  TTFT={_ttft_ms}ms{CLI_CLR}")
             think_match = re.search(r"<think>(.*?)</think>", raw, re.DOTALL)
             think_tok = len(think_match.group(1)) // 4 if think_match else 0
             raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
@@ -203,8 +215,13 @@ def _call_openai_tier(
                 try:
                     parsed = json.loads(raw)
                 except (json.JSONDecodeError, ValueError) as e:
-                    print(f"{CLI_RED}[{label}] JSON decode failed: {e}{CLI_CLR}")
-                    break
+                    # FIX-101: model returned text-prefixed JSON despite response_format
+                    # (e.g. "Action: Req_Delete({...})") — try bracket-extraction before giving up
+                    parsed = _extract_json_from_text(raw)
+                    if parsed is None:
+                        print(f"{CLI_RED}[{label}] JSON decode failed: {e}{CLI_CLR}")
+                        break
+                    print(f"{CLI_YELLOW}[FIX-101][{label}] JSON extracted from text (json_object mode){CLI_CLR}")
             else:
                 parsed = _extract_json_from_text(raw)
                 if parsed is None:
@@ -240,16 +257,17 @@ def _call_openai_tier(
                 print(f"{CLI_YELLOW}[FIX-77] Missing task_completed — defaulting to false{CLI_CLR}")
                 parsed["task_completed"] = False
             try:
-                return NextStep.model_validate(parsed), elapsed_ms, in_tok, out_tok, think_tok
+                return NextStep.model_validate(parsed), elapsed_ms, in_tok, out_tok, think_tok, _eval_count, _eval_ms
             except ValidationError as e:
                 print(f"{CLI_RED}[{label}] JSON parse failed: {e}{CLI_CLR}")
                 break
-    return None, 0, 0, 0, 0
+    return None, 0, 0, 0, 0, 0, 0
 
 
-def _call_llm(log: list, model: str, max_tokens: int, cfg: dict) -> tuple[NextStep | None, int, int, int, int]:
+def _call_llm(log: list, model: str, max_tokens: int, cfg: dict) -> tuple[NextStep | None, int, int, int, int, int, int]:
     """Call LLM: Anthropic SDK (tier 1) → OpenRouter (tier 2) → Ollama (tier 3).
-    Returns (result, elapsed_ms, input_tokens, output_tokens, thinking_tokens)."""
+    Returns (result, elapsed_ms, input_tokens, output_tokens, thinking_tokens, eval_count, eval_ms).
+    eval_count/eval_ms: Ollama-native generation metrics (0 for Anthropic/OpenRouter)."""
 
     # --- Anthropic SDK ---
     if is_claude_model(model) and anthropic_client is not None:
@@ -292,10 +310,10 @@ def _call_llm(log: list, model: str, max_tokens: int, cfg: dict) -> tuple[NextSt
                 break
             else:
                 try:
-                    return NextStep.model_validate_json(raw), elapsed_ms, in_tok, out_tok, think_tok
+                    return NextStep.model_validate_json(raw), elapsed_ms, in_tok, out_tok, think_tok, 0, 0
                 except (ValidationError, ValueError) as e:
                     print(f"{CLI_RED}[Anthropic] JSON parse failed: {e}{CLI_CLR}")
-                    return None, elapsed_ms, in_tok, out_tok, think_tok
+                    return None, elapsed_ms, in_tok, out_tok, think_tok, 0, 0
 
         _next = "OpenRouter" if openrouter_client is not None else "Ollama"
         print(f"{CLI_YELLOW}[Anthropic] Falling back to {_next}{CLI_CLR}")
@@ -381,6 +399,9 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
     listed_dirs: set[str] = set()
     total_in_tok = 0
     total_out_tok = 0
+    total_elapsed_ms = 0
+    total_eval_count = 0  # Ollama-native generated tokens (0 for other backends)
+    total_eval_ms = 0     # Ollama-native generation time ms (0 for other backends)
 
     # FIX-74: adaptive stall detection state
     _action_fingerprints: deque = deque(maxlen=6)
@@ -410,9 +431,12 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
         log = _compact_log(log, max_tool_pairs=5, preserve_prefix=preserve_prefix)
 
         # --- LLM call ---
-        job, elapsed_ms, in_tok, out_tok, _ = _call_llm(log, model, max_tokens, cfg)
+        job, elapsed_ms, in_tok, out_tok, _, ev_c, ev_ms = _call_llm(log, model, max_tokens, cfg)
         total_in_tok += in_tok
         total_out_tok += out_tok
+        total_elapsed_ms += elapsed_ms
+        total_eval_count += ev_c
+        total_eval_ms += ev_ms
 
         # JSON parse retry hint (for Ollama json_object mode)
         if job is None and not is_claude_model(model):
@@ -425,9 +449,12 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
                 'RULES: current_state=string, plan_remaining_steps_brief=array of strings, '
                 'task_completed=boolean (true/false not string), function=object with "tool" key inside.'
             )})
-            job, elapsed_ms, in_tok, out_tok, _ = _call_llm(log, model, max_tokens, cfg)
+            job, elapsed_ms, in_tok, out_tok, _, ev_c, ev_ms = _call_llm(log, model, max_tokens, cfg)
             total_in_tok += in_tok
             total_out_tok += out_tok
+            total_elapsed_ms += elapsed_ms
+            total_eval_count += ev_c
+            total_eval_ms += ev_ms
             log.pop()
 
         if job is None:
@@ -458,12 +485,15 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
             print(f"{CLI_YELLOW}[FIX-74][STALL] Detected: {_stall_hint[:120]}{CLI_CLR}")
             log.append({"role": "user", "content": f"[STALL HINT] {_stall_hint}"})
             _stall_hint_active = True
-            _job2, _, _i2, _o2, _ = _call_llm(log, model, max_tokens, cfg)
+            _job2, _e2, _i2, _o2, _, _ev_c2, _ev_ms2 = _call_llm(log, model, max_tokens, cfg)
             log.pop()
             if _job2 is not None:
                 job = _job2
                 total_in_tok += _i2
                 total_out_tok += _o2
+                total_elapsed_ms += _e2
+                total_eval_count += _ev_c2
+                total_eval_ms += _ev_ms2
                 action_name = job.function.__class__.__name__
                 action_args = job.function.model_dump_json()
                 _action_fingerprints[-1] = f"{action_name}:{action_args}"
@@ -566,4 +596,10 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
         # Inject result as a user message
         log.append({"role": "user", "content": f"Result of {action_name}: {txt}"})
 
-    return {"input_tokens": total_in_tok, "output_tokens": total_out_tok}
+    return {
+        "input_tokens": total_in_tok,
+        "output_tokens": total_out_tok,
+        "llm_elapsed_ms": total_elapsed_ms,
+        "ollama_eval_count": total_eval_count,   # 0 for non-Ollama
+        "ollama_eval_ms": total_eval_ms,          # 0 for non-Ollama
+    }

@@ -1,6 +1,6 @@
 # pac1-py — Component Dependency Graph
 
-Generated: 2026-03-26
+Generated: 2026-03-28
 
 ```mermaid
 graph TD

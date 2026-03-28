@@ -117,50 +117,82 @@ def main() -> None:
             total_out += ts.get("output_tokens", 0)
 
         # Summary table for log (no color codes)
-        W = 140
+        W = 152
         sep = "=" * W
         print(f"\n{sep}")
         _title = "ИТОГОВАЯ СТАТИСТИКА"
         print(f"{_title:^{W}}")
         print(sep)
-        print(f"{'Задание':<10} {'Оценка':>7} {'Время':>8}  {'Вход(tok)':>10} {'Выход(tok)':>10}  {'Тип':<11} {'Модель':<34}  Проблемы")
+        print(f"{'Задание':<10} {'Оценка':>7} {'Время':>8}  {'Вход(tok)':>10} {'Выход(tok)':>10} {'ток/с':>7}  {'Тип':<11} {'Модель':<34}  Проблемы")
         print("-" * W)
         model_totals: dict[str, dict] = {}
+        total_llm_ms = 0
         for task_id, score, detail, elapsed, ts in scores:
             issues = "; ".join(detail) if score < 1.0 else "—"
             in_t = ts.get("input_tokens", 0)
             out_t = ts.get("output_tokens", 0)
+            llm_ms = ts.get("llm_elapsed_ms", 0)
+            ev_c   = ts.get("ollama_eval_count", 0)
+            ev_ms  = ts.get("ollama_eval_ms", 0)
+            # Prefer Ollama-native gen metrics (accurate); fall back to wall-clock
+            if ev_c > 0 and ev_ms > 0:
+                tps = ev_c / (ev_ms / 1000.0)
+            elif llm_ms > 0:
+                tps = out_t / (llm_ms / 1000.0)
+            else:
+                tps = 0.0
+            total_llm_ms += llm_ms
             m = ts.get("model_used", "—")
             m_short = m.split("/")[-1] if "/" in m else m
             t_type = ts.get("task_type", "—")
-            print(f"{task_id:<10} {score:>7.2f} {elapsed:>7.1f}s  {in_t:>10,} {out_t:>10,}  {t_type:<11} {m_short:<34}  {issues}")
+            print(f"{task_id:<10} {score:>7.2f} {elapsed:>7.1f}s  {in_t:>10,} {out_t:>10,} {tps:>6.0f}  {t_type:<11} {m_short:<34}  {issues}")
             if m not in model_totals:
-                model_totals[m] = {"in": 0, "out": 0, "count": 0}
+                model_totals[m] = {"in": 0, "out": 0, "llm_ms": 0, "ev_c": 0, "ev_ms": 0, "count": 0}
             model_totals[m]["in"] += in_t
             model_totals[m]["out"] += out_t
+            model_totals[m]["llm_ms"] = model_totals[m].get("llm_ms", 0) + llm_ms
+            model_totals[m]["ev_c"]  = model_totals[m].get("ev_c", 0) + ev_c
+            model_totals[m]["ev_ms"] = model_totals[m].get("ev_ms", 0) + ev_ms
             model_totals[m]["elapsed"] = model_totals[m].get("elapsed", 0) + elapsed
             model_totals[m]["count"] += 1
         n = len(scores)
         avg_elapsed = total_elapsed / n if n else 0
         avg_in = total_in // n if n else 0
         avg_out = total_out // n if n else 0
+        total_ev_c  = sum(ts.get("ollama_eval_count", 0) for *_, ts in scores)
+        total_ev_ms = sum(ts.get("ollama_eval_ms", 0)    for *_, ts in scores)
+        if total_ev_c > 0 and total_ev_ms > 0:
+            total_tps = total_ev_c / (total_ev_ms / 1000.0)
+        elif total_llm_ms > 0:
+            total_tps = total_out / (total_llm_ms / 1000.0)
+        else:
+            total_tps = 0.0
         print(sep)
-        print(f"{'ИТОГО':<10} {total:>6.2f}% {total_elapsed:>7.1f}s  {total_in:>10,} {total_out:>10,}  {'':11} {'':34}")
-        print(f"{'СРЕДНЕЕ':<10} {'':>7} {avg_elapsed:>7.1f}s  {avg_in:>10,} {avg_out:>10,}  {'':11} {'':34}")
+        print(f"{'ИТОГО':<10} {total:>6.2f}% {total_elapsed:>7.1f}s  {total_in:>10,} {total_out:>10,} {total_tps:>6.0f}  {'':11} {'':34}")
+        print(f"{'СРЕДНЕЕ':<10} {'':>7} {avg_elapsed:>7.1f}s  {avg_in:>10,} {avg_out:>10,} {'':>6}  {'':11} {'':34}")
         print(sep)
         if len(model_totals) > 1:
-            print(f"\n{'─' * 75}")
+            print(f"\n{'─' * 84}")
             print("По моделям:")
-            print(f"{'─' * 75}")
-            print(f"  {'Модель':<35} {'Задач':>5}  {'Вх.всего':>10}  {'Вх.ср.':>10}  {'Вых.ср.':>9}  {'с/задачу':>9}")
-            print(f"  {'─' * 73}")
+            print(f"{'─' * 84}")
+            print(f"  {'Модель':<35} {'Задач':>5}  {'Вх.всего':>10}  {'Вх.ср.':>10}  {'Вых.ср.':>9}  {'с/задачу':>9}  {'ток/с':>7}")
+            print(f"  {'─' * 82}")
             for m, mt in sorted(model_totals.items()):
                 m_short = m.split("/")[-1] if "/" in m else m
                 cnt = mt["count"]
                 avg_i = mt["in"] // cnt if cnt else 0
                 avg_o = mt["out"] // cnt if cnt else 0
                 avg_e = mt.get("elapsed", 0) / cnt if cnt else 0
-                print(f"  {m_short:<35} {cnt:>5}  {mt['in']:>10,}  {avg_i:>10,}  {avg_o:>9,}  {avg_e:>8.1f}s")
+                m_ev_c  = mt.get("ev_c", 0)
+                m_ev_ms = mt.get("ev_ms", 0)
+                m_llm_ms = mt.get("llm_ms", 0)
+                if m_ev_c > 0 and m_ev_ms > 0:
+                    m_tps = m_ev_c / (m_ev_ms / 1000.0)
+                elif m_llm_ms > 0:
+                    m_tps = mt["out"] / (m_llm_ms / 1000.0)
+                else:
+                    m_tps = 0.0
+                print(f"  {m_short:<35} {cnt:>5}  {mt['in']:>10,}  {avg_i:>10,}  {avg_o:>9,}  {avg_e:>8.1f}s  {m_tps:>6.0f}")
 
 
 if __name__ == "__main__":
