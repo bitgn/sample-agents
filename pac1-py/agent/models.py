@@ -122,6 +122,10 @@ class NextStep(BaseModel):
         ...,
         description="briefly explain the next useful steps",
     )
+    done_operations: List[str] = Field(
+        default_factory=list,
+        description="Accumulated list of ALL confirmed write/delete/move operations completed so far in this task (e.g. 'WRITTEN: /path', 'DELETED: /path'). Never omit previously listed entries.",
+    )
     task_completed: bool
     # AICODE-NOTE: Keep this union aligned with the public PCM runtime surface
     # plus the local stop action. PCM currently lacks a public completion RPC, so

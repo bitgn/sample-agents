@@ -128,7 +128,8 @@ def classify_task_llm(task_text: str, model: str, model_config: dict,
     try:
         raw = call_llm_raw(_CLASSIFY_SYSTEM, user_msg, model, _cls_cfg,
                            max_tokens=_cls_cfg["max_completion_tokens"],
-                           think=False)  # FIX-103: disable think + use configured token budget
+                           think=False,  # FIX-103: disable think + use configured token budget
+                           max_retries=0)  # FIX-108: 1 attempt only → instant fallback to regex
         if not raw:  # FIX-79: catch both None and "" (empty string after retry exhaustion)
             print("[MODEL_ROUTER][FIX-75] All LLM tiers failed or empty, falling back to regex")
             _classifier_llm_ok = False
@@ -191,7 +192,9 @@ class ModelRouter:
 
     def resolve_llm(self, task_text: str) -> tuple[str, dict, str]:
         """FIX-75: Use classifier model to classify task, then return (model_id, config, task_type).
-        FIX-97: Cache classification results by keyword fingerprint — skip LLM on cache hit."""
+        FIX-97: Cache classification results by keyword fingerprint — skip LLM on cache hit.
+        FIX-112: Skip LLM when regex result is unambiguous — LLM only adds value when
+        regex=default AND no bulk keywords (the only case where LLM can upgrade to think)."""
         global _classifier_llm_ok
         # FIX-97: check keyword fingerprint cache before calling LLM
         fp = _task_fingerprint(task_text)
@@ -203,11 +206,25 @@ class ModelRouter:
                 _classifier_llm_ok = True
                 model_id = self._select_model(cached)
                 return model_id, self.configs.get(model_id, {}), cached
-        task_type = classify_task_llm(task_text, self.classifier, self.configs.get(self.classifier, {}))
+
+        # FIX-112: pre-check regex before spending LLM call.
+        # LLM can only improve the result in one case: regex=default AND no bulk keywords
+        # (where LLM might detect think-style reasoning regex missed).
+        # Other cases: regex already non-default → LLM would agree or wrongly downgrade;
+        # default + bulk → FIX-89 will upgrade to longContext anyway.
+        regex_type = classify_task(task_text)
+        has_bulk = bool(_BULK_TASK_RE.search(task_text))
+        if regex_type != TASK_DEFAULT or has_bulk:
+            print(f"[MODEL_ROUTER][FIX-112] Skipping LLM: regex={regex_type} bulk={has_bulk} → unambiguous")
+            _classifier_llm_ok = False
+            task_type = regex_type
+        else:
+            task_type = classify_task_llm(task_text, self.classifier, self.configs.get(self.classifier, {}))
+
         if fp:
             self._type_cache[fp] = task_type  # FIX-97: store in cache
         model_id = self._select_model(task_type)
-        print(f"[MODEL_ROUTER][FIX-75] LLM type={task_type} → model={model_id}")
+        print(f"[MODEL_ROUTER][FIX-75] type={task_type} → model={model_id}")
         return model_id, self.configs.get(model_id, {}), task_type
 
     def model_for_type(self, task_type: str) -> tuple[str, dict]:

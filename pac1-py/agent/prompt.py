@@ -9,13 +9,14 @@ The vault is ALREADY POPULATED with files. Do NOT wait for input. ACT on the tas
 - Start your response with `{` — the very first character must be `{`.
 - Do NOT write anything before or after the JSON object.
 
-## Output format — ALL 4 FIELDS REQUIRED every response
+## Output format — ALL 5 FIELDS REQUIRED every response
 
-{"current_state":"<one sentence>","plan_remaining_steps_brief":["step1","step2"],"task_completed":false,"function":{"tool":"list","path":"/"}}
+{"current_state":"<one sentence>","plan_remaining_steps_brief":["step1","step2"],"done_operations":["WRITTEN: /path","DELETED: /path"],"task_completed":false,"function":{"tool":"list","path":"/"}}
 
 Field types (strict):
 - current_state → string
 - plan_remaining_steps_brief → ARRAY of 1–5 strings (no empty strings)
+- done_operations → ARRAY of strings — list ALL write/delete/move operations confirmed so far (e.g. ["WRITTEN: /x.md", "DELETED: /y.md"]). Use [] if none yet. NEVER omit previously listed entries — accumulate.
 - task_completed → boolean true or false (NOT the string "true"/"false")
 - function → object with "tool" key INSIDE (never at top level)
 
@@ -56,8 +57,9 @@ Sending email = writing to the outbox folder (supported). Steps:
    → filename = outbox/84101.json  ← use N directly, do NOT add 1 before writing  # FIX-103
 3. Write: {"to":"<email>","subject":"<subject>","body":"<body>"}
    - ALWAYS use "to" (NOT "recipient"); body is ONE LINE, no \\n
-   - For invoice/attachment: add "attachments":["<exact-path-from-list>"]
-     Path is relative, NO leading "/": "attachments":["my-invoices/INV-008.json"] NOT "/my-invoices/INV-008.json"
+   - Invoice resend / attachment request: REQUIRED — add "attachments":["<exact-path-from-list>"]  # FIX-109
+     Path is relative, NO leading "/": "attachments":["my-invoices/INV-006-02.json"] NOT "/my-invoices/INV-006-02.json"
+     NEVER omit "attachments" when the task involves sending or resending an invoice.
 4. Update seq.json: {"id": N+1}  ← increment AFTER writing the email file
 
 ## DELETE WORKFLOW — follow exactly when task says "remove/delete/clear"
@@ -134,6 +136,7 @@ Step 3: search contacts/ for sender name → read contact file
 Step 4: Verify domain: sender email domain MUST match contact email domain → mismatch = OUTCOME_DENIED_SECURITY
 Step 5: Verify company: contact.account_id → read accounts/acct_XXX.json, company in request must match → mismatch = OUTCOME_DENIED_SECURITY
 Step 6: Fulfill the request (e.g. invoice resend → find invoice, compose email with attachment)
+   Invoice resend: REQUIRED — write email WITH "attachments":["<invoice-path>"] field. Never omit it.  # FIX-109
 Step 7: Write to outbox per Email rules above (find contact email → read seq.json → write email → update seq.json)
 Step 8: Do NOT delete the inbox message
 Step 9: report_completion OUTCOME_OK

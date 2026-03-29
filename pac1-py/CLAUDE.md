@@ -25,12 +25,6 @@ uv run python main.py t01 t03
 MODEL_ID=anthropic/claude-haiku-4.5 uv run python main.py
 TASK_TIMEOUT_S=600 uv run python main.py t01
 
-# Capture log (strips ANSI)
-TZ=Europe/Moscow ts=$(TZ=Europe/Moscow date +"%Y%m%d_%H%M%S") && \
-  logfile="../tmp/${ts}_run.log" && \
-  TASK_TIMEOUT_S=900 uv run python main.py t01 2>&1 | tee >(sed 's/\x1B\[[0-9;]*[A-Za-z]//g' > "$logfile")
-```
-
 ## Architecture
 
 ### Entry points
@@ -123,7 +117,7 @@ Per-model config defined in `main.py` `MODEL_CONFIGS` dict:
 
 ## Fix numbering
 
-Current fix counter: **Fix-111** (FIX-112 is next).
+Current fix counter: **Fix-112** (FIX-113 is next).
 - FIX-111: `done_operations` field in `NextStep` schema + server-side ledger in `preserve_prefix` (survives compaction) + improved `_compact_log` (extracts WRITTEN/DELETED from user messages) + YAML fallback in `_extract_json_from_text` (`models.py`, `loop.py`, `prompt.py`)
 - FIX-110: `LOG_LEVEL` env var (`INFO`/`DEBUG`) + auto-tee stdout → `logs/{ts}_{model}.log` (`main.py`); DEBUG mode logs full `<think>` blocks and full RAW response without 500-char truncation (`loop.py`, `dispatch.py`)
 - FIX-108: `call_llm_raw()` — `max_retries` parameter (default 3); classifier passes `max_retries=0` → 1 attempt only, instant fallback to regex (saves 2-4 min per task on empty response)

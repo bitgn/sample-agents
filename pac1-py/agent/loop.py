@@ -162,7 +162,7 @@ def _extract_json_from_text(text: str) -> dict | None:
     # FIX-111: YAML fallback — for models that output YAML or Markdown when JSON schema not supported
     try:
         import yaml  # pyyaml
-        stripped = re.sub(r"```(?:yaml)?\s*", "", text.strip()).strip("`").strip()
+        stripped = re.sub(r"```(?:yaml|markdown)?\s*", "", text.strip()).replace("```", "").strip()
         parsed_yaml = yaml.safe_load(stripped)
         if isinstance(parsed_yaml, dict) and any(k in parsed_yaml for k in ("current_state", "function", "tool")):
             print(f"\x1B[33m[FIX-111] YAML fallback parsed successfully\x1B[0m")
@@ -483,10 +483,11 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
             print(f"{CLI_YELLOW}[retry] Adding JSON correction hint{CLI_CLR}")
             log.append({"role": "user", "content": (
                 'Your previous response was invalid. Respond with EXACTLY this JSON structure '
-                '(all 4 fields required, correct types):\n'
+                '(all 5 fields required, correct types):\n'
                 '{"current_state":"<string>","plan_remaining_steps_brief":["<string>"],'
-                '"task_completed":false,"function":{"tool":"list","path":"/"}}\n'
+                '"done_operations":[],"task_completed":false,"function":{"tool":"list","path":"/"}}\n'
                 'RULES: current_state=string, plan_remaining_steps_brief=array of strings, '
+                'done_operations=array of strings (confirmed WRITTEN:/DELETED: ops so far, empty [] if none), '
                 'task_completed=boolean (true/false not string), function=object with "tool" key inside.'
             )})
             job, elapsed_ms, in_tok, out_tok, _, ev_c, ev_ms = _call_llm(log, model, max_tokens, cfg)

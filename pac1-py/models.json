@@ -6,27 +6,11 @@
     "response_format_hint": "Hint for OpenRouter tier: 'json_object' or 'json_schema'",
     "ollama_think": "Enable <think> blocks for Ollama models that support it"
   },
-  "qwen3.5:cloud": {
+  "gpt-oss:120b-cloud": {
     "max_completion_tokens": 4000,
     "ollama_think": false
   },
-  "qwen3.5:397b-cloud": {
-    "max_completion_tokens": 4000,
-    "ollama_think": true
-  },
-  "deepseek-v3.1:671b-cloud": {
-    "max_completion_tokens": 4000,
-    "ollama_think": true
-  },
-  "deepseek-r1:671b-cloud": {
-    "max_completion_tokens": 4000,
-    "ollama_think": false
-  },
-  "gpt-oss:20b-cloud": {
-    "max_completion_tokens": 4000,
-    "ollama_think": false
-  },
-  "nemotron-3-nano:30b-cloud": {
+  "rnj-1:8b-cloud": {
     "max_completion_tokens": 4000,
     "ollama_think": false
   }
