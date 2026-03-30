@@ -115,7 +115,17 @@ def classify_task_llm(task_text: str, model: str, model_config: dict,
     FIX-79: treat empty string same as None (empty response after retries).
     FIX-81: truncate to 150 chars — enough for task verb, avoids injection tail.
     FIX-82: JSON regex-extraction fallback if json.loads fails.
-    FIX-99: optional vault_hint appended to user message for context."""
+    FIX-99: optional vault_hint appended to user message for context.
+    FIX-120: regex pre-check fast-path — skip LLM when regex is already confident."""
+    # FIX-120: if regex already signals think/longContext, skip the LLM call entirely.
+    # Rationale: explicit keywords (distill, analyze, all-files, batch) are unambiguous;
+    # LLM call adds latency + GPU contention without changing the outcome.
+    # LLM is only useful when regex returns 'default' and vault context might reveal
+    # that the task is actually analytical or bulk-scope.
+    _regex_pre = classify_task(task_text)
+    if _regex_pre != TASK_DEFAULT:
+        print(f"[MODEL_ROUTER][FIX-120] Regex-confident type={_regex_pre!r}, skipping LLM")
+        return _regex_pre
     user_msg = f"Task: {task_text[:150]}"  # FIX-81: 600→150 to avoid injection content
     if vault_hint:  # FIX-99: add vault context when available
         user_msg += f"\nContext: {vault_hint}"

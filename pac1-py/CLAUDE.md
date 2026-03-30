@@ -117,7 +117,8 @@ Per-model config defined in `main.py` `MODEL_CONFIGS` dict:
 
 ## Fix numbering
 
-Current fix counter: **Fix-119** (FIX-120 is next).
+Current fix counter: **Fix-120** (FIX-121 is next).
+- FIX-120: `classifier.py` `classify_task_llm()` — regex pre-check fast-path: if regex gives non-default (`think`/`longContext`), return immediately and skip LLM call; LLM is only called when regex is unsure (returns `default`) and vault context might reveal analytical/bulk scope
 - FIX-119: `models.json` `_profiles` section (named parameter sets: default/think/long_ctx) + profile references in all 15 models; `main.py` resolves string→dict at load time; `classifier.py` `ModelRouter._adapt_config()` merges task-type overlay into model config inside `resolve_after_prephase()`; `loop.py` Ollama tier now passes `ollama_options` via `extra_body["options"]` (was only `ollama_think`)
 - FIX-118: `dispatch.py` + `models.json` — `ollama_options` support: passed via `extra_body["options"]` in Ollama tier; `num_ctx: 16384` added to all cloud models so classifier can handle full AGENTS.MD context
 - FIX-117: `classifier.py` + `__init__.py` — single-pass routing: classify AFTER prephase with AGENTS.MD context; removed `resolve_llm()`, `reclassify_with_prephase()`, `_classifier_llm_ok`, `_type_cache`; added `ModelRouter.resolve_after_prephase()`
