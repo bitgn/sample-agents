@@ -3,6 +3,7 @@ import os
 import re
 import time
 from collections import Counter, deque
+from dataclasses import dataclass
 
 from google.protobuf.json_format import MessageToDict
 from connectrpc.errors import ConnectError
@@ -57,12 +58,157 @@ def _format_result(result, txt: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# FIX-123: Tool result compaction for log history
+# ---------------------------------------------------------------------------
+
+_MAX_READ_HISTORY = 200  # chars of file content kept in history (model saw full text already)
+
+
+def _compact_tool_result(action_name: str, txt: str) -> str:
+    """FIX-123: Compact tool result before storing in log history.
+    The model already received the full result in the current step's user message;
+    history only needs a reference-quality summary to avoid token accumulation."""
+    if txt.startswith("WRITTEN:") or txt.startswith("DELETED:") or \
+            txt.startswith("CREATED DIR:") or txt.startswith("MOVED:") or \
+            txt.startswith("ERROR") or txt.startswith("VAULT STRUCTURE:"):
+        return txt  # already compact or important verbatim
+
+    if action_name == "Req_Read":
+        try:
+            d = json.loads(txt)
+            content = d.get("content", "")
+            path = d.get("path", "")
+            if len(content) > _MAX_READ_HISTORY:
+                return f"{path}: {content[:_MAX_READ_HISTORY]}...[+{len(content) - _MAX_READ_HISTORY} chars]"
+        except (json.JSONDecodeError, ValueError):
+            pass
+        return txt[:_MAX_READ_HISTORY + 30] + ("..." if len(txt) > _MAX_READ_HISTORY + 30 else "")
+
+    if action_name == "Req_List":
+        try:
+            d = json.loads(txt)
+            names = [e["name"] for e in d.get("entries", [])]
+            if names:
+                return f"entries: {', '.join(names)}"
+        except (json.JSONDecodeError, ValueError, KeyError):
+            pass
+
+    if action_name == "Req_Search":
+        try:
+            d = json.loads(txt)
+            hits = [f"{m['path']}:{m.get('line', '')}" for m in d.get("matches", [])]
+            if hits:
+                return f"matches: {', '.join(hits)}"
+            return "matches: (none)"
+        except (json.JSONDecodeError, ValueError, KeyError):
+            pass
+
+    return txt  # fallback: unchanged
+
+
+# ---------------------------------------------------------------------------
+# FIX-124: Assistant message schema strip for log history
+# ---------------------------------------------------------------------------
+
+def _history_action_repr(action_name: str, action) -> str:
+    """FIX-124: Compact function call representation for log history.
+    Drops None/False/0/'' defaults (e.g. number=false, start_line=0) that waste tokens
+    without carrying information. Full args still used for actual dispatch."""
+    try:
+        d = action.model_dump(exclude_none=True)
+        d = {k: v for k, v in d.items() if v not in (False, 0, "")}
+        args_str = json.dumps(d, ensure_ascii=False, separators=(",", ":"))
+        return f"Action: {action_name}({args_str})"
+    except Exception:
+        return f"Action: {action_name}({action.model_dump_json()})"
+
+
+# ---------------------------------------------------------------------------
+# FIX-125: Step facts accumulation for rolling state digest
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _StepFact:
+    """One key fact extracted from a completed step for rolling digest."""
+    kind: str    # "list", "read", "search", "write", "delete", "move", "mkdir"
+    path: str
+    summary: str  # compact 1-line description
+
+
+def _extract_fact(action_name: str, action, result_txt: str) -> "_StepFact | None":
+    """FIX-125: Extract key fact from a completed step — used to build state digest."""
+    path = getattr(action, "path", getattr(action, "from_name", ""))
+
+    if action_name == "Req_Read":
+        try:
+            d = json.loads(result_txt)
+            content = d.get("content", "").replace("\n", " ").strip()
+            return _StepFact("read", path, content[:120])
+        except (json.JSONDecodeError, ValueError):
+            pass
+        return _StepFact("read", path, result_txt[:80].replace("\n", " "))
+
+    if action_name == "Req_List":
+        try:
+            d = json.loads(result_txt)
+            names = [e["name"] for e in d.get("entries", [])]
+            return _StepFact("list", path, ", ".join(names[:10]))
+        except (json.JSONDecodeError, ValueError, KeyError):
+            return _StepFact("list", path, result_txt[:60])
+
+    if action_name == "Req_Search":
+        try:
+            d = json.loads(result_txt)
+            hits = [f"{m['path']}:{m.get('line', '')}" for m in d.get("matches", [])]
+            summary = ", ".join(hits) if hits else "(no matches)"
+            return _StepFact("search", path, summary)
+        except (json.JSONDecodeError, ValueError, KeyError):
+            return _StepFact("search", path, result_txt[:60])
+
+    if action_name == "Req_Write":
+        return _StepFact("write", path, f"WRITTEN: {path}")
+    if action_name == "Req_Delete":
+        return _StepFact("delete", path, f"DELETED: {path}")
+    if action_name == "Req_Move":
+        to = getattr(action, "to_name", "?")
+        return _StepFact("move", path, f"MOVED: {path} → {to}")
+    if action_name == "Req_MkDir":
+        return _StepFact("mkdir", path, f"CREATED DIR: {path}")
+
+    return None
+
+
+def _build_digest(facts: "list[_StepFact]") -> str:
+    """FIX-125: Build compact state digest from accumulated step facts."""
+    sections: dict[str, list[str]] = {
+        "LISTED": [], "READ": [], "FOUND": [], "DONE": [],
+    }
+    for f in facts:
+        if f.kind == "list":
+            sections["LISTED"].append(f"  {f.path}: {f.summary}")
+        elif f.kind == "read":
+            sections["READ"].append(f"  {f.path}: {f.summary}")
+        elif f.kind == "search":
+            sections["FOUND"].append(f"  {f.summary}")
+        elif f.kind in ("write", "delete", "move", "mkdir"):
+            sections["DONE"].append(f"  {f.summary}")
+    parts = [
+        f"{label}:\n" + "\n".join(lines)
+        for label, lines in sections.items()
+        if lines
+    ]
+    return "[FIX-125] State digest:\n" + ("\n".join(parts) if parts else "(no facts)")
+
+
+# ---------------------------------------------------------------------------
 # Log compaction (sliding window)
 # ---------------------------------------------------------------------------
 
-def _compact_log(log: list, max_tool_pairs: int = 7, preserve_prefix: list | None = None) -> list:
+def _compact_log(log: list, max_tool_pairs: int = 7, preserve_prefix: list | None = None,
+                 step_facts: "list[_StepFact] | None" = None) -> list:
     """Keep preserved prefix + last N assistant/tool message pairs.
-    Older pairs are replaced with a single summary message."""
+    Older pairs are replaced with a single summary message.
+    FIX-125: if step_facts provided, uses _build_digest() instead of 'Actions taken:'."""
     prefix_len = len(preserve_prefix) if preserve_prefix else 0
     tail = log[prefix_len:]
     max_msgs = max_tool_pairs * 2
@@ -73,23 +219,35 @@ def _compact_log(log: list, max_tool_pairs: int = 7, preserve_prefix: list | Non
     old = tail[:-max_msgs]
     kept = tail[-max_msgs:]
 
-    summary_parts = []
+    # FIX-111: extract confirmed operations from compacted pairs (safety net for done_ops)
     confirmed_ops = []
     for msg in old:
         role = msg.get("role", "")
         content = msg.get("content", "")
-        if role == "assistant" and content:
-            summary_parts.append(f"- {content[:120]}")
-        elif role == "user" and content:
-            # FIX-111: extract confirmed operations from compacted tool results
+        if role == "user" and content:
             for line in content.splitlines():
                 if line.startswith(("WRITTEN:", "DELETED:", "MOVED:", "CREATED DIR:")):
                     confirmed_ops.append(line)
+
     parts: list[str] = []
     if confirmed_ops:
         parts.append("Confirmed ops (already done, do NOT redo):\n" + "\n".join(f"  {op}" for op in confirmed_ops))
-    if summary_parts:
-        parts.append("Actions taken:\n" + "\n".join(summary_parts[-5:]))
+
+    # FIX-125: use state digest from accumulated step facts when available
+    old_step_count = len(old) // 2  # each step = 1 assistant + 1 user message
+    if step_facts and old_step_count > 0 and len(step_facts) >= old_step_count:
+        old_facts = step_facts[:old_step_count]
+        parts.append(_build_digest(old_facts))
+        print(f"\x1B[33m[FIX-125] Compacted {old_step_count} steps into digest ({len(old_facts)} facts)\x1B[0m")
+    else:
+        # Fallback: plain text summary from assistant messages (pre-FIX-125 behaviour)
+        summary_parts = []
+        for msg in old:
+            if msg.get("role") == "assistant" and msg.get("content"):
+                summary_parts.append(f"- {msg['content'][:120]}")
+        if summary_parts:
+            parts.append("Actions taken:\n" + "\n".join(summary_parts[-5:]))
+
     summary = "Previous steps summary:\n" + ("\n".join(parts) if parts else "(none)")
 
     base = preserve_prefix if preserve_prefix is not None else log[:prefix_len]
@@ -446,6 +604,9 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
     _error_counts: Counter = Counter()
     _stall_hint_active: bool = False
 
+    # FIX-125: accumulated step facts for rolling state digest in _compact_log
+    _step_facts: list[_StepFact] = []
+
     # FIX-111: server-authoritative done_operations ledger
     # Survives log compaction — injected into preserve_prefix and updated in-place
     _done_ops: list[str] = []
@@ -471,7 +632,9 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
         print(f"\n{CLI_BLUE}--- {step} ---{CLI_CLR} ", end="")
 
         # Compact log to prevent token overflow
-        log = _compact_log(log, max_tool_pairs=5, preserve_prefix=preserve_prefix)
+        # FIX-125: pass accumulated step facts for digest-based compaction
+        log = _compact_log(log, max_tool_pairs=5, preserve_prefix=preserve_prefix,
+                           step_facts=_step_facts)
 
         # --- LLM call ---
         job, elapsed_ms, in_tok, out_tok, _, ev_c, ev_ms = _call_llm(log, model, max_tokens, cfg)
@@ -550,9 +713,10 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
                 action_args = job.function.model_dump_json()
                 _action_fingerprints[-1] = f"{action_name}:{action_args}"
 
+        # FIX-124: compact function call representation in history (strip None/False/0 defaults)
         log.append({
             "role": "assistant",
-            "content": f"{step_summary}\nAction: {action_name}({action_args})",
+            "content": _history_action_repr(action_name, job.function),
         })
 
         # FIX-63: auto-list parent dir before first delete from it
@@ -666,8 +830,14 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
                     print(f"- {CLI_BLUE}{ref}{CLI_CLR}")
             break
 
-        # Inject result as a user message
-        log.append({"role": "user", "content": f"Result of {action_name}: {txt}"})
+        # FIX-125: extract step fact before compacting (uses raw txt, not history-compact version)
+        _fact = _extract_fact(action_name, job.function, txt)
+        if _fact is not None:
+            _step_facts.append(_fact)
+
+        # FIX-123: compact tool result for log history (model saw full output already)
+        _history_txt = _compact_tool_result(action_name, txt)
+        log.append({"role": "user", "content": f"Result of {action_name}: {_history_txt}"})
 
     return {
         "input_tokens": total_in_tok,

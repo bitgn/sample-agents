@@ -21,10 +21,6 @@ uv run python main.py                 # or: make run
 # Run specific tasks
 uv run python main.py t01 t03
 
-# Run with overrides
-MODEL_ID=anthropic/claude-haiku-4.5 uv run python main.py
-TASK_TIMEOUT_S=600 uv run python main.py t01
-
 ## Architecture
 
 ### Entry points
@@ -117,7 +113,10 @@ Per-model config defined in `main.py` `MODEL_CONFIGS` dict:
 
 ## Fix numbering
 
-Current fix counter: **Fix-122** (FIX-123 is next).
+Current fix counter: **Fix-125** (FIX-126 is next).
+- FIX-125: `loop.py` `_compact_log()` + `run_loop()` — rolling state digest: accumulate `_StepFact` objects per step (`_extract_fact()`); when compaction triggers, replace "Actions taken:" with `_build_digest()` (LISTED/READ/FOUND/DONE sections); log line `[FIX-125] Compacted N steps into digest`
+- FIX-124: `loop.py` `run_loop()` — compact function call in assistant history: `_history_action_repr()` strips None/False/0/'' defaults (e.g. `number=false, start_line=0`) from serialized function args; saves ~20-30 tokens/step
+- FIX-123: `loop.py` `run_loop()` — compact tool result in log history: `_compact_tool_result()` truncates Req_Read content to 200 chars, Req_List to comma-separated names, Req_Search to path:line list; model already saw full output in current step
 - FIX-122: `dispatch.py` `call_llm_raw()` Ollama tier — remove `max_tokens` param from both the main `json_object` loop and the FIX-104 plain-text retry call; Ollama stops naturally after generating the JSON token ({"type":"X"}, ~8 tokens); explicit `max_tokens` cap caused empty responses under GPU load when Ollama mishandles short-output caps
 - FIX-121: `classifier.py` `classify_task_llm()` — two fixes for classifier empty-response under GPU load: (1) truncate vault_hint to 400 chars (first lines of AGENTS.MD are sufficient for role/type detection); (2) strip agent-loop ollama_options from classifier call (repeat_penalty/repeat_last_n/top_k tuned for long generation cause empty responses for 8-token output — keep only num_ctx+temperature); (3) raise max_retries 0→1 (one retry now that call is lightweight)
 - FIX-120: `classifier.py` `classify_task_llm()` — regex pre-check fast-path: if regex gives non-default (`think`/`longContext`), return immediately and skip LLM call; LLM is only called when regex is unsure (returns `default`) and vault context might reveal analytical/bulk scope
