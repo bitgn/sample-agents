@@ -88,8 +88,7 @@ def _compact_tool_result(action_name: str, txt: str) -> str:
         try:
             d = json.loads(txt)
             names = [e["name"] for e in d.get("entries", [])]
-            if names:
-                return f"entries: {', '.join(names)}"
+            return f"entries: {', '.join(names)}" if names else "entries: (empty)"
         except (json.JSONDecodeError, ValueError, KeyError):
             pass
 
@@ -165,15 +164,21 @@ def _extract_fact(action_name: str, action, result_txt: str) -> "_StepFact | Non
         except (json.JSONDecodeError, ValueError, KeyError):
             return _StepFact("search", path, result_txt[:60])
 
+    # For mutating operations, check result_txt for errors before reporting success
+    _is_err = result_txt.startswith("ERROR")
     if action_name == "Req_Write":
-        return _StepFact("write", path, f"WRITTEN: {path}")
+        summary = result_txt[:80] if _is_err else f"WRITTEN: {path}"
+        return _StepFact("write", path, summary)
     if action_name == "Req_Delete":
-        return _StepFact("delete", path, f"DELETED: {path}")
+        summary = result_txt[:80] if _is_err else f"DELETED: {path}"
+        return _StepFact("delete", path, summary)
     if action_name == "Req_Move":
         to = getattr(action, "to_name", "?")
-        return _StepFact("move", path, f"MOVED: {path} → {to}")
+        summary = result_txt[:80] if _is_err else f"MOVED: {path} → {to}"
+        return _StepFact("move", path, summary)
     if action_name == "Req_MkDir":
-        return _StepFact("mkdir", path, f"CREATED DIR: {path}")
+        summary = result_txt[:80] if _is_err else f"CREATED DIR: {path}"
+        return _StepFact("mkdir", path, summary)
 
     return None
 
