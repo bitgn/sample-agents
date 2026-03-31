@@ -238,12 +238,14 @@ def _compact_log(log: list, max_tool_pairs: int = 7, preserve_prefix: list | Non
     if confirmed_ops:
         parts.append("Confirmed ops (already done, do NOT redo):\n" + "\n".join(f"  {op}" for op in confirmed_ops))
 
-    # FIX-125: use state digest from accumulated step facts when available
-    old_step_count = len(old) // 2  # each step = 1 assistant + 1 user message
-    if step_facts and old_step_count > 0 and len(step_facts) >= old_step_count:
-        old_facts = step_facts[:old_step_count]
-        parts.append(_build_digest(old_facts))
-        print(f"\x1B[33m[FIX-125] Compacted {old_step_count} steps into digest ({len(old_facts)} facts)\x1B[0m")
+    # FIX-125: use ALL accumulated step facts as the complete state digest.
+    # Always use the full step_facts list — never slice by old_step_count, because:
+    # 1. Extra injected messages (FIX-63/71/73 auto-lists, stall hints, JSON retries) shift len(old)//2
+    # 2. After a previous compaction the old summary message itself lands in `old`, skewing the count
+    # 3. step_facts is the authoritative ground truth regardless of how many compactions occurred
+    if step_facts:
+        parts.append(_build_digest(step_facts))
+        print(f"\x1B[33m[FIX-125] Compacted {len(old)} msgs into digest ({len(step_facts)} facts)\x1B[0m")
     else:
         # Fallback: plain text summary from assistant messages (pre-FIX-125 behaviour)
         summary_parts = []

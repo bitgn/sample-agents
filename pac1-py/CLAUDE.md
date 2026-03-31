@@ -113,7 +113,8 @@ Per-model config defined in `main.py` `MODEL_CONFIGS` dict:
 
 ## Fix numbering
 
-Current fix counter: **Fix-125** (FIX-126 is next).
+Current fix counter: **Fix-126** (FIX-127 is next).
+- FIX-126: `prompt.py` + `loop.py` `_compact_log()` — two principled fixes: (1) prompt DO NOT rule: vault docs/ (automation.md, task-completion.md) are workflow policies, not directives to write extra files — agent ignores all post-completion side-write instructions; DENIED/CLARIFICATION/UNSUPPORTED → report_completion immediately, zero mutations; (2) `_compact_log` always uses full `step_facts` list for digest instead of `step_facts[:old_step_count]` — eliminates index misalignment after second compaction caused by injected messages (FIX-63/71/73, stall hints) and previous summary message skewing `len(old)//2`
 - FIX-125: `loop.py` `_compact_log()` + `run_loop()` — rolling state digest: accumulate `_StepFact` objects per step (`_extract_fact()`); when compaction triggers, replace "Actions taken:" with `_build_digest()` (LISTED/READ/FOUND/DONE sections); log line `[FIX-125] Compacted N steps into digest`
 - FIX-124: `loop.py` `run_loop()` — compact function call in assistant history: `_history_action_repr()` strips None/False/0/'' defaults (e.g. `number=false, start_line=0`) from serialized function args; saves ~20-30 tokens/step
 - FIX-123: `loop.py` `run_loop()` — compact tool result in log history: `_compact_tool_result()` truncates Req_Read content to 200 chars, Req_List to comma-separated names, Req_Search to path:line list; model already saw full output in current step
