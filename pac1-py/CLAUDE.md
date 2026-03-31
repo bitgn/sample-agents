@@ -113,7 +113,9 @@ Per-model config defined in `main.py` `MODEL_CONFIGS` dict:
 
 ## Fix numbering
 
-Current fix counter: **Fix-130** (FIX-131 is next).
+Current fix counter: **Fix-132** (FIX-133 is next).
+- FIX-132: `loop.py` FIX-128 repair — pass `pre.agents_md_content[:600]` as vault context to routing LLM; without it classifier had no basis for CLARIFY/UNSUPPORTED decisions causing 35+ false CLARIFYs; narrow CLARIFY to "critical absent info only" and UNSUPPORTED to "external services not in vault"
+- FIX-131: `loop.py` FIX-127 repair — `ReadRequest(name=)` → `ReadRequest(path=)`; removed false-positive zero-check from `_bad` list (`0` is a valid field value, agent fills fields from task context)
 - FIX-130: `loop.py` `_check_stall()` — SGR Adaptive Planning quality: function receives step_facts; signal-1 appends recent action list from step_facts[-4:]; signal-2 names parent dir explicitly via _Path(path).parent; signal-3 lists explored dirs and read files from step_facts — adaptive hints reduce stall recovery time (target: gpt-oss 8→≤4 stall events)
 - FIX-129: `loop.py` — SGR Cycle post-search expansion: after Req_Search returns 0 results and pattern looks like a proper name (2–4 words, no special chars), code builds ≤3 alternative queries (individual words, last name, first+last) and injects cycle hint; _search_retry_counts counter limits to 2 expansions per pattern (fixes t14 contact lookup failure)
 - FIX-128: `loop.py` + `models.py` `TaskRoute` — SGR Routing + Cascade pre-loop task classifier: before main loop, fast-path regex + 1 LLM call with TaskRoute schema (injection_signals Cascade → route Literal Routing → reason); routes DENY/CLARIFY/UNSUPPORTED to immediate vm.answer() without entering the main loop (fixes t07 injection detection, t20 over-permissive)
