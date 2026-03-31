@@ -128,9 +128,9 @@ Finding a contact by company/organization name → use search, NOT sequential re
   {"tool":"search","pattern":"Blue Harbor Bank","root":"/contacts","limit":5}
 This returns the matching file in ONE call. Do NOT read contacts one by one.
 
-Contact not found — early-exit rule:  # FIX-113
-- If search returns empty (0 results): try ONE alternative search (e.g. last name only or first name only).
-- If still empty → OUTCOME_NONE_CLARIFICATION immediately.
+Contact not found — early-exit rule:  # FIX-113 / FIX-129
+- If search returns empty (0 results): cycle through alternatives — last name only, first name only, company token (up to 2 retries).
+- If all alternatives return empty → OUTCOME_NONE_CLARIFICATION immediately.
 - NEVER read contact files one by one to search for a name — it is forbidden.
 
 ## INBOX WORKFLOW — follow exactly when task says "process the inbox"
