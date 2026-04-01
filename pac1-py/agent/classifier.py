@@ -65,7 +65,7 @@ _WRITE_VERBS_RE = re.compile(
 _CODER_RE = re.compile(
     r"\b(calculate|compute|sum\s+of|count|filter|days?\s+from|date\s+(diff|arith)"
     r"|how\s+many|average|total\s+of|sort\s+by|aggregate"
-    r"|reschedule|postpone|push\s+back|move\s+(the\s+)?follow.?up)\b",  # FIX-152: date-reschedule → coder model
+    r"|\d+\s+(days?|weeks?|months?))\b",  # FIX-152r: numeric duration → implies date arithmetic → coder model
     re.IGNORECASE,
 )
 
