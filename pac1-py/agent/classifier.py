@@ -22,7 +22,7 @@ TASK_EMAIL = "email"
 TASK_LOOKUP = "lookup"
 TASK_INBOX = "inbox"
 TASK_DISTILL = "distill"
-# TASK_CODER = "coder"  ← добавляется Unit 9 после этой строки
+TASK_CODER = "coder"
 
 
 _PATH_RE = re.compile(r"/[a-zA-Z0-9_\-\.]+")
@@ -62,6 +62,12 @@ _WRITE_VERBS_RE = re.compile(
     re.IGNORECASE,
 )
 
+_CODER_RE = re.compile(
+    r"\b(calculate|compute|sum\s+of|count|filter|days?\s+from|date\s+(diff|arith)"
+    r"|how\s+many|average|total\s+of|sort\s+by|aggregate)\b",
+    re.IGNORECASE,
+)
+
 
 @dataclass
 class _Rule:
@@ -95,7 +101,13 @@ _RULE_MATRIX: list[_Rule] = [
         result=TASK_EMAIL,
         label="email-keywords",
     ),
-    # [Unit 9 placeholder for TASK_CODER rule here]
+    # Rule 3b: calculation/aggregation/date-arithmetic → coder
+    _Rule(
+        must=[_CODER_RE],
+        must_not=[_BULK_RE],
+        result=TASK_CODER,
+        label="coder-keywords",
+    ),
     # Rule 4: lookup contact/email/phone with no write intent → lookup
     _Rule(
         must=[_LOOKUP_RE],
@@ -140,10 +152,11 @@ def classify_task(task_text: str) -> str:
 _CLASSIFY_SYSTEM = (
     "You are a task router. Classify the task into exactly one type. "
     'Reply ONLY with valid JSON: {"type": "<type>"} where <type> is one of: '
-    "think, longContext, email, lookup, inbox, distill, default.\n"
+    "think, longContext, email, coder, lookup, inbox, distill, default.\n"
     "longContext = batch/all files/multiple files/3+ explicit file paths\n"
     "inbox = process/check/handle the inbox\n"
     "email = send/compose/write email to a recipient\n"
+    "coder = calculate/compute/count/aggregate/date arithmetic/filter lists/sort\n"
     "lookup = find/lookup contact info (email/phone) with no write action\n"
     "distill = analysis/reasoning AND writing a card/note/summary\n"
     "think = analysis/reasoning/summarize/compare/evaluate/explain (no write)\n"
@@ -151,7 +164,7 @@ _CLASSIFY_SYSTEM = (
 )
 
 _VALID_TYPES = frozenset({TASK_THINK, TASK_LONG_CONTEXT, TASK_DEFAULT,
-                          TASK_EMAIL, TASK_LOOKUP, TASK_INBOX, TASK_DISTILL})
+                          TASK_EMAIL, TASK_LOOKUP, TASK_INBOX, TASK_DISTILL, TASK_CODER})
 
 # Ordered keyword → task_type table for plain-text LLM response fallback.
 # Most-specific types first; longContext listed with all common spellings.
@@ -159,6 +172,7 @@ _PLAINTEXT_FALLBACK: list[tuple[tuple[str, ...], str]] = [
     (("longcontext", "long_context", "long context"), TASK_LONG_CONTEXT),
     (("inbox",),   TASK_INBOX),
     (("email",),   TASK_EMAIL),
+    (("coder",),   TASK_CODER),
     (("lookup",),  TASK_LOOKUP),
     (("distill",), TASK_DISTILL),
     (("think",),   TASK_THINK),
@@ -272,7 +286,8 @@ class ModelRouter:
     email: str = ""
     lookup: str = ""
     inbox: str = ""
-    # coder: str = ""  ← Unit 9 adds this
+    # Unit 9: coder task type model override
+    coder: str = ""
     configs: dict[str, dict] = field(default_factory=dict)
 
     def _select_model(self, task_type: str) -> str:
@@ -280,6 +295,7 @@ class ModelRouter:
             TASK_THINK: self.think,
             TASK_LONG_CONTEXT: self.long_context,
             TASK_EMAIL: self.email or self.default,
+            TASK_CODER: self.coder or self.default,
             TASK_LOOKUP: self.lookup or self.default,
             TASK_INBOX: self.inbox or self.think,
             TASK_DISTILL: self.think,

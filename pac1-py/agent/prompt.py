@@ -31,6 +31,14 @@ IMPORTANT: "tool" goes INSIDE "function", NOT at the top level.
 - tree:   {"tool":"tree","root":"","level":2}
 - find:   {"tool":"find","name":"*.md","root":"/some-folder","kind":"files","limit":10}
 - search: {"tool":"search","pattern":"keyword","root":"/","limit":10}
+- code_eval: {"tool":"code_eval","code":"<Python 3 snippet>","context_vars":{"key":"value"}}
+  Language: Python 3 only. Runs in a local sandbox — no filesystem, no network.
+  Use for: date arithmetic, counting/filtering lists, numeric aggregation, string formatting.
+  Rules:
+  - Print the final answer with print(result). The output becomes the tool result.
+  - Pass dynamic values via context_vars — do NOT hardcode them inside the code.
+  - Allowed modules: datetime, json, re, math.
+  - FORBIDDEN: import os/subprocess/sys/pathlib, open(), eval(), exec()
 - report_completion: {"tool":"report_completion","completed_steps_laconic":["step"],"message":"done","grounding_refs":[],"outcome":"OUTCOME_OK"}
 
 ## CRITICAL: find uses FILENAME GLOB, not a description

@@ -125,6 +125,12 @@ class EmailOutbox(BaseModel):
         return v
 
 
+class Req_CodeEval(BaseModel):
+    tool: Literal["code_eval"]
+    code: Annotated[str, MinLen(1), MaxLen(2000)]
+    context_vars: dict = Field(default_factory=dict)
+
+
 class NextStep(BaseModel):
     current_state: str
     plan_remaining_steps_brief: Annotated[List[str], MinLen(1), MaxLen(5)] = Field(
@@ -141,6 +147,7 @@ class NextStep(BaseModel):
     # `report_completion` ends the sample loop locally and `EndTrial` still grades
     # only the runtime events that the harness persisted.
     function: Union[
+        Req_CodeEval,
         ReportTaskCompletion,
         Req_Context,
         Req_Tree,

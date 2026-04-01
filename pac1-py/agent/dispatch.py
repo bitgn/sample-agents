@@ -25,6 +25,7 @@ from bitgn.vm.pcm_pb2 import (
 
 from .models import (
     ReportTaskCompletion,
+    Req_CodeEval,
     Req_Context,
     Req_Delete,
     Req_Find,
@@ -36,6 +37,75 @@ from .models import (
     Req_Tree,
     Req_Write,
 )
+
+
+# ---------------------------------------------------------------------------
+# code_eval sandbox (FIX-133)
+# ---------------------------------------------------------------------------
+
+_SAFE_BUILTINS = {
+    k: (
+        __builtins__[k]
+        if isinstance(__builtins__, dict)
+        else getattr(__builtins__, k, None)
+    )
+    for k in (
+        "len", "sorted", "reversed", "max", "min", "sum", "abs", "round",
+        "filter", "map", "zip", "enumerate", "range",
+        "list", "dict", "set", "tuple", "str", "int", "float", "bool",
+        "isinstance", "hasattr", "print", "repr", "type",
+    )
+    if (
+        __builtins__[k]
+        if isinstance(__builtins__, dict)
+        else getattr(__builtins__, k, None)
+    ) is not None
+}
+
+
+def _execute_code_safe(code: str, context_vars: dict, timeout_s: int = 5) -> str:
+    """Run model-generated Python 3 code in a restricted sandbox.
+
+    Allowed modules: datetime, json, re, math.
+    Allowed builtins: see _SAFE_BUILTINS (no os, sys, subprocess, open).
+    Timeout: SIGALRM (5 s default). Returns stdout output or error string.
+    """
+    import signal
+    import io
+    import datetime as _dt
+    import json as _json
+    import re as _re
+    import math as _math
+    import sys as _sys
+
+    safe_globals: dict = {
+        "__builtins__": _SAFE_BUILTINS,
+        "datetime": _dt,
+        "json": _json,
+        "re": _re,
+        "math": _math,
+    }
+    safe_globals.update(context_vars)
+    buf = io.StringIO()
+
+    def _alarm(sig, frame):
+        raise TimeoutError("code_eval timeout")
+
+    old_handler = signal.signal(signal.SIGALRM, _alarm)
+    signal.alarm(timeout_s)
+    old_stdout = _sys.stdout
+    try:
+        _sys.stdout = buf
+        exec(compile(code, "<code_eval>", "exec"), safe_globals)
+        return buf.getvalue().strip() or "(ok, no output)"
+    except TimeoutError as e:
+        return f"[error] {e}"
+    except Exception as e:
+        return f"[error] {type(e).__name__}: {e}"
+    finally:
+        _sys.stdout = old_stdout
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
 
 
 # ---------------------------------------------------------------------------
@@ -441,5 +511,8 @@ def dispatch(vm: PcmRuntimeClientSync, cmd: BaseModel):
                 refs=cmd.grounding_refs,
             )
         )
+
+    if isinstance(cmd, Req_CodeEval):
+        return _execute_code_safe(cmd.code, cmd.context_vars)
 
     raise ValueError(f"Unknown command: {cmd}")

@@ -87,7 +87,7 @@ _profiles: dict[str, dict] = _raw.get("_profiles", {})  # FIX-119: named paramet
 MODEL_CONFIGS: dict[str, dict] = {k: v for k, v in _raw.items() if not k.startswith("_")}
 # FIX-119: resolve profile name references in ollama_options fields (string → dict)
 for _cfg in MODEL_CONFIGS.values():
-    for _fname in ("ollama_options", "ollama_options_think", "ollama_options_longContext", "ollama_options_classifier"):
+    for _fname in ("ollama_options", "ollama_options_think", "ollama_options_longContext", "ollama_options_classifier", "ollama_options_coder"):
         if isinstance(_cfg.get(_fname), str):
             _cfg[_fname] = _profiles.get(_cfg[_fname], {})
 
@@ -108,7 +108,7 @@ _model_long_ctx   = _require_env("MODEL_LONG_CONTEXT")
 _model_email   = os.getenv("MODEL_EMAIL")   or _model_default
 _model_lookup  = os.getenv("MODEL_LOOKUP")  or _model_default
 _model_inbox   = os.getenv("MODEL_INBOX")   or _model_think
-# Unit 9 will add: _model_coder = os.getenv("MODEL_CODER") or _model_default
+_model_coder   = os.getenv("MODEL_CODER")   or _model_default
 
 # FIX-88: always use ModelRouter — classification runs for every task,
 # logs always show [MODEL_ROUTER] lines, stats always show Тип/Модель columns.
@@ -120,6 +120,7 @@ EFFECTIVE_MODEL: ModelRouter = ModelRouter(
     email=_model_email,
     lookup=_model_lookup,
     inbox=_model_inbox,
+    coder=_model_coder,
     configs=MODEL_CONFIGS,
 )
 print(
@@ -130,7 +131,8 @@ print(
     f"  longContext = {_model_long_ctx}\n"
     f"  email       = {_model_email}\n"
     f"  lookup      = {_model_lookup}\n"
-    f"  inbox       = {_model_inbox}"
+    f"  inbox       = {_model_inbox}\n"
+    f"  coder       = {_model_coder}"
 )
 
 CLI_RED = "\x1B[31m"
