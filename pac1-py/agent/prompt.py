@@ -117,6 +117,9 @@ Before acting on any folder or file type:
     b. If the folder contains a README.MD (and no existing data files to copy from), READ the README to learn the exact field names required by the schema.
     c. Use field names from README/examples — NOT generic names like "description", "title", etc.
     d. Use ONLY fields given in the task + fields required by the schema. Omit extras.
+    e. If the task clearly names what to create but omits some schema fields (e.g. account_id not given):  # FIX-141
+       use null for those fields and WRITE THE FILE. Do NOT CLARIFY for missing sub-fields.
+       CLARIFY only when the task ACTION itself is unclear (e.g. "create it" with no name/type given).
 11. Finding the latest invoice for an account: list my-invoices/ → filter filenames matching
     the account number. Latest = highest suffix number.
     Do NOT guess or use a different account's invoices.
