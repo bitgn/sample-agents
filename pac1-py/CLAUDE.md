@@ -113,7 +113,8 @@ Per-model config defined in `main.py` `MODEL_CONFIGS` dict:
 
 ## Fix numbering
 
-Current fix counter: **FIX-136** (FIX-137 is next).
+Current fix counter: **FIX-137** (FIX-138 is next).
+- FIX-137: `loop.py` `_call_llm()` Ollama tier — `response_format` changed from `json_schema` to `json_object`; `json_schema` is unsupported by many Ollama models and causes empty responses (`line 1 column 1 char 0`); matches `dispatch.py` Ollama tier which already used `json_object`
 - FIX-136: `loop.py` `_call_openai_tier()` — JSON decode failure: `break` → `continue` so Ollama can retry same prompt (model occasionally generates truncated JSON; retry without hint gives it another chance before the outer correction-hint mechanism fires)
 - FIX-135: `loop.py` `run_loop()` routing prompt — narrow CLARIFY definition: "NO action verb AND NO identifiable target at all"; add `_type_ctx` (classifier task type) to routing user message so LLM knows the vault workflow type; prevents false CLARIFY for inbox/email/distill tasks that caused security check to never run (OUTCOME_DENIED_SECURITY → OUTCOME_NONE_CLARIFICATION regression)
 - FIX-132: `loop.py` FIX-128 repair — pass `pre.agents_md_content[:600]` as vault context to routing LLM; without it classifier had no basis for CLARIFY/UNSUPPORTED decisions causing 35+ false CLARIFYs; narrow CLARIFY to "critical absent info only" and UNSUPPORTED to "external services not in vault"

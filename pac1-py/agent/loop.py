@@ -547,12 +547,14 @@ def _call_llm(log: list, model: str, max_tokens: int, cfg: dict) -> tuple[NextSt
     _opts = cfg.get("ollama_options")
     if _opts is not None:  # None=not configured; {}=valid (though empty) — use `is not None`
         extra["options"] = _opts
+    # FIX-137: use json_object (not json_schema) for Ollama — json_schema is unsupported
+    # by many Ollama models and causes empty responses; matches dispatch.py Ollama tier.
     return _call_openai_tier(
         ollama_client, ollama_model, log,
         None,  # no max_tokens for Ollama — model stops naturally
         "Ollama",
         extra_body=extra if extra else None,
-        response_format=get_response_format("json_schema"),
+        response_format=get_response_format("json_object"),
     )
 
 
