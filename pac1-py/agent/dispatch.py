@@ -40,7 +40,7 @@ from .models import (
 
 
 # ---------------------------------------------------------------------------
-# code_eval sandbox (FIX-133)
+# code_eval sandbox
 # ---------------------------------------------------------------------------
 
 _SAFE_BUILTINS = {
@@ -249,7 +249,7 @@ def get_response_format(mode: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
-# FIX-76: lightweight raw LLM call (used by classify_task_llm in classifier.py)
+# Lightweight raw LLM call (used by classify_task_llm in classifier.py)
 # ---------------------------------------------------------------------------
 
 # Transient error keywords — single source of truth; imported by loop.py
@@ -259,11 +259,11 @@ TRANSIENT_KWS = (
 )
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
-_LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()  # FIX-110: DEBUG → log think blocks
+_LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()  # DEBUG → log think blocks
 
 
 def is_ollama_model(model: str) -> bool:
-    """FIX-83: True for Ollama-format models (name:tag, no slash).
+    """True for Ollama-format models (name:tag, no slash).
     Examples: qwen3.5:9b, deepseek-v3.1:671b-cloud, qwen3.5:cloud.
     These must be routed directly to Ollama tier, skipping OpenRouter."""
     return ":" in model and "/" not in model
@@ -275,13 +275,13 @@ def call_llm_raw(
     model: str,
     cfg: dict,
     max_tokens: int = 20,
-    think: bool | None = None,  # FIX-84: None=use cfg, False=disable, True=enable
-    max_retries: int = 3,  # FIX-108: classifier passes 0 → 1 attempt, no retries
+    think: bool | None = None,  # None=use cfg, False=disable, True=enable
+    max_retries: int = 3,  # classifier passes 0 → 1 attempt, no retries
 ) -> str | None:
-    """FIX-76: Lightweight LLM call with 3-tier routing and FIX-27 retry.
+    """Lightweight LLM call with 3-tier routing and transient-error retry.
     Returns raw text (think blocks stripped), or None if all tiers fail.
     Used by classify_task_llm(); caller handles JSON parsing and fallback.
-    FIX-108: max_retries controls retry count per tier (0 = 1 attempt only)."""
+    max_retries controls retry count per tier (0 = 1 attempt only)."""
 
     msgs = [
         {"role": "system", "content": system},
@@ -304,20 +304,20 @@ def call_llm_raw(
                     if getattr(block, "type", None) == "text" and block.text.strip():
                         return block.text.strip()
                 if attempt < max_retries:
-                    print(f"[FIX-76][Anthropic] Empty response (attempt {attempt + 1}) — retrying")
+                    print(f"[Anthropic] Empty response (attempt {attempt + 1}) — retrying")
                     continue
-                print("[FIX-80][Anthropic] Empty after all retries — falling through to next tier")
-                break  # FIX-80: do not return "" — let next tier try
+                print("[Anthropic] Empty after all retries — falling through to next tier")
+                break  # do not return "" — let next tier try
             except Exception as e:
                 if any(kw.lower() in str(e).lower() for kw in TRANSIENT_KWS) and attempt < max_retries:
-                    print(f"[FIX-76][Anthropic] Transient (attempt {attempt + 1}): {e} — retrying in 4s")
+                    print(f"[Anthropic] Transient (attempt {attempt + 1}): {e} — retrying in 4s")
                     time.sleep(4)
                     continue
-                print(f"[FIX-76][Anthropic] Error: {e}")
+                print(f"[Anthropic] Error: {e}")
                 break
 
     # --- Tier 2: OpenRouter (skip Ollama-format models) ---
-    if openrouter_client is not None and not is_ollama_model(model):  # FIX-83
+    if openrouter_client is not None and not is_ollama_model(model):
         so_mode = probe_structured_output(openrouter_client, model, hint=cfg.get("response_format_hint"))
         rf = {"type": "json_object"} if so_mode == "json_object" else None
         for attempt in range(max_retries + 1):
@@ -327,41 +327,40 @@ def call_llm_raw(
                     create_kwargs["response_format"] = rf
                 resp = openrouter_client.chat.completions.create(**create_kwargs)
                 _content = resp.choices[0].message.content or ""
-                if _LOG_LEVEL == "DEBUG":  # FIX-110
+                if _LOG_LEVEL == "DEBUG":
                     _m = re.search(r"<think>(.*?)</think>", _content, re.DOTALL)
                     if _m:
-                        print(f"[FIX-110][OpenRouter][THINK]: {_m.group(1).strip()}")
+                        print(f"[OpenRouter][THINK]: {_m.group(1).strip()}")
                 raw = _THINK_RE.sub("", _content).strip()
                 if not raw:
                     if attempt < max_retries:
-                        print(f"[FIX-76][OpenRouter] Empty response (attempt {attempt + 1}) — retrying")
+                        print(f"[OpenRouter] Empty response (attempt {attempt + 1}) — retrying")
                         continue
-                    print("[FIX-80][OpenRouter] Empty after all retries — falling through to next tier")
-                    break  # FIX-80: do not return "" — let next tier try
+                    print("[OpenRouter] Empty after all retries — falling through to next tier")
+                    break  # do not return "" — let next tier try
                 return raw
             except Exception as e:
                 if any(kw.lower() in str(e).lower() for kw in TRANSIENT_KWS) and attempt < max_retries:
-                    print(f"[FIX-76][OpenRouter] Transient (attempt {attempt + 1}): {e} — retrying in 4s")
+                    print(f"[OpenRouter] Transient (attempt {attempt + 1}): {e} — retrying in 4s")
                     time.sleep(4)
                     continue
-                print(f"[FIX-76][OpenRouter] Error: {e}")
+                print(f"[OpenRouter] Error: {e}")
                 break
 
     # --- Tier 3: Ollama (local fallback) ---
     ollama_model = cfg.get("ollama_model") or os.environ.get("OLLAMA_MODEL", model)
-    # FIX-84: explicit think= overrides cfg; None means use cfg default
+    # explicit think= overrides cfg; None means use cfg default
     _think_flag = think if think is not None else cfg.get("ollama_think")
     _ollama_extra: dict = {}
     if _think_flag is not None:
         _ollama_extra["think"] = _think_flag
     _opts = cfg.get("ollama_options")
-    if _opts is not None:  # FIX-118+BUG2: None=not configured; {}=valid (though empty) — use `is not None`
+    if _opts is not None:  # None=not configured; {}=valid (though empty) — use `is not None`
         _ollama_extra["options"] = _opts
     for attempt in range(max_retries + 1):
         try:
-            # FIX-122: do not pass max_tokens to Ollama in call_llm_raw — output is short
-            # ({"type":"X"}, ~8 tokens); the model stops naturally; explicit cap causes
-            # empty responses under GPU load when Ollama ignores or mishandles the param.
+            # Do not pass max_tokens to Ollama — output is short (~8 tokens); the model stops
+            # naturally; explicit cap causes empty responses under GPU load.
             _create_kw: dict = dict(
                 model=ollama_model,
                 response_format={"type": "json_object"},
@@ -371,43 +370,43 @@ def call_llm_raw(
                 _create_kw["extra_body"] = _ollama_extra
             resp = ollama_client.chat.completions.create(**_create_kw)
             _content = resp.choices[0].message.content or ""
-            if _LOG_LEVEL == "DEBUG":  # FIX-110
+            if _LOG_LEVEL == "DEBUG":
                 _m = re.search(r"<think>(.*?)</think>", _content, re.DOTALL)
                 if _m:
-                    print(f"[FIX-110][Ollama][THINK]: {_m.group(1).strip()}")
+                    print(f"[Ollama][THINK]: {_m.group(1).strip()}")
             raw = _THINK_RE.sub("", _content).strip()
             if not raw:
                 if attempt < max_retries:
-                    print(f"[FIX-76][Ollama] Empty response (attempt {attempt + 1}) — retrying")
+                    print(f"[Ollama] Empty response (attempt {attempt + 1}) — retrying")
                     continue
-                print("[FIX-80][Ollama] Empty after all retries — returning None")
-                break  # FIX-80: do not return "" — fall through to return None
+                print("[Ollama] Empty after all retries — returning None")
+                break  # do not return "" — fall through to return None
             return raw
         except Exception as e:
             if any(kw.lower() in str(e).lower() for kw in TRANSIENT_KWS) and attempt < max_retries:
-                print(f"[FIX-76][Ollama] Transient (attempt {attempt + 1}): {e} — retrying in 4s")
+                print(f"[Ollama] Transient (attempt {attempt + 1}): {e} — retrying in 4s")
                 time.sleep(4)
                 continue
-            print(f"[FIX-76][Ollama] Error: {e}")
+            print(f"[Ollama] Error: {e}")
             break
 
-    # FIX-104: plain-text retry — if all json_object attempts failed, try without response_format
+    # Plain-text retry — if all json_object attempts failed, try without response_format
     try:
-        _pt_kw: dict = dict(model=ollama_model, messages=msgs)  # FIX-122: no max_tokens
+        _pt_kw: dict = dict(model=ollama_model, messages=msgs)  # no max_tokens
         if _ollama_extra:
             _pt_kw["extra_body"] = _ollama_extra
         resp = ollama_client.chat.completions.create(**_pt_kw)
         _content = resp.choices[0].message.content or ""
-        if _LOG_LEVEL == "DEBUG":  # FIX-110
+        if _LOG_LEVEL == "DEBUG":
             _m = re.search(r"<think>(.*?)</think>", _content, re.DOTALL)
             if _m:
-                print(f"[FIX-110][Ollama-pt][THINK]: {_m.group(1).strip()}")
+                print(f"[Ollama-pt][THINK]: {_m.group(1).strip()}")
         raw = _THINK_RE.sub("", _content).strip()
         if raw:
-            print(f"[FIX-104][Ollama] Plain-text retry succeeded: {raw[:60]!r}")
+            print(f"[Ollama] Plain-text retry succeeded: {raw[:60]!r}")
             return raw
     except Exception as e:
-        print(f"[FIX-104][Ollama] Plain-text retry failed: {e}")
+        print(f"[Ollama] Plain-text retry failed: {e}")
 
     return None
 
