@@ -1,11 +1,15 @@
 {
   "_comment": "Model capability configs. Key = model ID (must match MODEL_* env vars). Copy to models.json.",
   "_fields": {
-    "max_completion_tokens": "Max tokens the model may generate per step",
-    "thinking_budget":       "Token budget for extended thinking (Anthropic only); omit to disable",
-    "response_format_hint":  "Hint for OpenRouter tier: 'json_object' or 'json_schema'",
-    "ollama_think":          "Enable <think> blocks for Ollama models that support reasoning",
-    "ollama_options":        "Ollama-specific options passed via extra_body.options — see _ollama_options_ref below"
+    "max_completion_tokens":        "Max tokens the model may generate per step",
+    "thinking_budget":              "Token budget for extended thinking (Anthropic only); omit to disable",
+    "response_format_hint":         "Hint for OpenRouter tier: 'json_object' or 'json_schema'",
+    "ollama_think":                 "Enable <think> blocks for Ollama models that support reasoning",
+    "ollama_options":               "Ollama options for default tasks (string = profile name from _profiles, or inline dict)",
+    "ollama_options_think":         "Ollama options override for TASK_THINK / TASK_DISTILL",
+    "ollama_options_longContext":   "Ollama options override for TASK_LONG_CONTEXT",
+    "ollama_options_classifier":    "Ollama options override for classifier LLM call (temperature=0.0 recommended)",
+    "ollama_options_coder":         "Ollama options override for TASK_CODER / MODEL_CODER (temperature=0.1 recommended)"
   },
 
   "_ollama_options_ref": {
@@ -80,11 +84,12 @@
   "deepseek-r1:32b": {"max_completion_tokens": 4000, "ollama_think": true, "ollama_options": {"num_ctx": 16384}},
 
   "_section_ollama_cloud": "--- Ollama cloud endpoint (OLLAMA_BASE_URL=https://your-cloud/v1) ---",
+  "_note_profiles": "ollama_options_* fields reference named profiles from _profiles in models.json (resolved at startup)",
 
-  "qwen3.5:cloud":            {"max_completion_tokens": 4000, "ollama_think": true,  "ollama_options": {"num_ctx": 16384}},
-  "qwen3.5:397b-cloud":       {"max_completion_tokens": 4000, "ollama_think": true,  "ollama_options": {"num_ctx": 16384}},
-  "deepseek-v3.1:671b-cloud": {"max_completion_tokens": 4000, "ollama_think": false, "ollama_options": {"num_ctx": 16384}},
-  "deepseek-r1:671b-cloud":   {"max_completion_tokens": 4000, "ollama_think": true,  "ollama_options": {"num_ctx": 16384}},
+  "qwen3.5:cloud":            {"max_completion_tokens": 4000, "ollama_think": true,  "ollama_options": "default", "ollama_options_think": "think", "ollama_options_longContext": "long_ctx", "ollama_options_classifier": "classifier", "ollama_options_coder": "coder"},
+  "qwen3.5:397b-cloud":       {"max_completion_tokens": 4000, "ollama_think": true,  "ollama_options": "default", "ollama_options_think": "think", "ollama_options_longContext": "long_ctx", "ollama_options_classifier": "classifier", "ollama_options_coder": "coder"},
+  "deepseek-v3.1:671b-cloud": {"max_completion_tokens": 4000, "ollama_think": false, "ollama_options": "default", "ollama_options_think": "think", "ollama_options_longContext": "long_ctx", "ollama_options_classifier": "classifier", "ollama_options_coder": "coder"},
+  "deepseek-r1:671b-cloud":   {"max_completion_tokens": 4000, "ollama_think": true,  "ollama_options": "default", "ollama_options_think": "think", "ollama_options_longContext": "long_ctx", "ollama_options_classifier": "classifier", "ollama_options_coder": "coder"},
 
   "_section_openrouter": "--- OpenRouter (OPENROUTER_API_KEY required) ---",
 
