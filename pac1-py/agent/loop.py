@@ -569,6 +569,17 @@ def _call_llm(log: list, model: str, max_tokens: int, cfg: dict) -> tuple[NextSt
     Returns (result, elapsed_ms, input_tokens, output_tokens, thinking_tokens, eval_count, eval_ms).
     eval_count/eval_ms: Ollama-native generation metrics (0 for Anthropic/OpenRouter)."""
 
+    # FIX-158: In DEBUG mode log full conversation history before each LLM call
+    if _LOG_LEVEL == "DEBUG":
+        print(f"\n{CLI_YELLOW}[DEBUG] Conversation log ({len(log)} messages):{CLI_CLR}")
+        for _di, _dm in enumerate(log):
+            _role = _dm.get("role", "?")
+            _content = _dm.get("content", "")
+            if isinstance(_content, str):
+                print(f"{CLI_YELLOW}  [{_di}] {_role}: {_content}{CLI_CLR}")
+            elif isinstance(_content, list):
+                print(f"{CLI_YELLOW}  [{_di}] {_role}: [blocks ×{len(_content)}]{CLI_CLR}")
+
     # --- Anthropic SDK ---
     if is_claude_model(model) and anthropic_client is not None:
         ant_model = get_anthropic_model_id(model)

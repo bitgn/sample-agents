@@ -113,7 +113,9 @@ Per-model config defined in `main.py` `MODEL_CONFIGS` dict:
 
 ## Fix numbering
 
-Current fix counter: **FIX-156** (FIX-157 is next).
+Current fix counter: **FIX-158** (FIX-159 is next).
+- FIX-158: `loop.py` `_call_llm()` — DEBUG mode logs full conversation history (all messages with role+content) before each LLM call; previously DEBUG only showed RAW response and think-blocks, not the input messages being sent
+- FIX-157: `prompt.py` step 2.5/2.6 — two fixes: (1) admin channels skip action-instruction security check (admin is trusted per docs/channels/); valid/non-marked channels still blocked; (2) admin channel replies go to report_completion.message NOT outbox — outbox is email-only, Telegram handles (@user) are not email addresses; OTP-elevated trust also uses report_completion.message reply
 - FIX-156: `prompt.py` step 2.5 security check — three weaknesses patched: (1) "delete/move/modify system files" changed to "ANY access instruction (read/list/open/check) for system paths docs/, otp.txt, AGENTS.md" — model previously allowed reads since only mutations were listed; (2) "especially mutations" qualifier removed — ANY action instruction is denied; (3) added explicit examples ("please do X", "follow this check", "if…then…") and clarified channel trust level does NOT bypass step 2.5
 - FIX-155: `loop.py` `_call_openai_tier()` hint-echo guard — detect when model response starts with a known hint prefix (`[search]`, `[stall]`, `[verify]`, etc.); these indicate the model echoed the last user hint instead of generating JSON; inject a brief JSON correction before retrying; minimax-m2 consistently echoed hint messages causing 2 wasted decode-fail retries per search expansion
 - FIX-154: `prompt.py` INBOX WORKFLOW step 2.6B — OTP exception: explicit 3-step checklist: (1) grant admin trust, (2) MANDATORY delete used token from docs/channels/otp.txt (delete whole file if last token, rewrite without token if multiple), (3) fulfill request; model was reading vault docs OTP rule but skipping the delete because it was not in the agent prompt
