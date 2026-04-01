@@ -70,7 +70,7 @@ def _format_result(result, txt: str) -> str:
 # Tool result compaction for log history
 # ---------------------------------------------------------------------------
 
-_MAX_READ_HISTORY = 200  # chars of file content kept in history (model saw full text already)
+_MAX_READ_HISTORY = 400  # chars of file content kept in history (model saw full text already)  # FIX-147
 
 
 def _compact_tool_result(action_name: str, txt: str) -> str:
@@ -307,10 +307,20 @@ def _to_anthropic_messages(log: list) -> tuple[str, list]:
 # JSON extraction from free-form text (fallback when SO not supported)
 # ---------------------------------------------------------------------------
 
-def _extract_json_from_text(text: str) -> dict | None:
-    """Extract first valid JSON object from free-form model output (already de-thought).
-    Tries: ```json fenced block → bracket-matched first {…}."""
-    # Try ```json ... ``` fenced block
+def _extract_json_from_text(text: str) -> dict | None:  # FIX-146
+    """Extract the richest valid JSON object from free-form model output (already de-thought).
+
+    Preference order:
+    1. ```json fenced block (already specific — return immediately)
+    2. Any object with both 'current_state' and 'function' keys (full NextStep schema)
+    3. Any object with 'function' key
+    4. First valid JSON object
+    5. YAML fallback
+
+    This prevents bare Action: {"tool":"read",...} lines from shadowing the
+    full NextStep object that follows them in multi-action Ollama responses.
+    """
+    # Try ```json ... ``` fenced block first — explicit, return immediately
     m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if m:
         try:
@@ -318,9 +328,13 @@ def _extract_json_from_text(text: str) -> dict | None:
         except (json.JSONDecodeError, ValueError):
             pass
 
-    # Bracket-match from the first { to its balanced closing }
-    start = text.find("{")
-    if start != -1:
+    # Collect ALL valid bracket-matched JSON objects, prefer the richest one
+    candidates: list[dict] = []
+    pos = 0
+    while True:
+        start = text.find("{", pos)
+        if start == -1:
+            break
         depth = 0
         for idx in range(start, len(text)):
             if text[idx] == "{":
@@ -329,9 +343,27 @@ def _extract_json_from_text(text: str) -> dict | None:
                 depth -= 1
                 if depth == 0:
                     try:
-                        return json.loads(text[start:idx + 1])
+                        obj = json.loads(text[start:idx + 1])
+                        if isinstance(obj, dict):
+                            candidates.append(obj)
                     except (json.JSONDecodeError, ValueError):
-                        break
+                        pass
+                    pos = idx + 1
+                    break
+        else:
+            break
+
+    if candidates:
+        # Prefer full NextStep schema (current_state + function)
+        for obj in candidates:
+            if "current_state" in obj and "function" in obj:
+                return obj
+        # Then any object with function key
+        for obj in candidates:
+            if "function" in obj:
+                return obj
+        # Fallback: first candidate
+        return candidates[0]
 
     # YAML fallback — for models that output YAML or Markdown when JSON schema not supported
     try:

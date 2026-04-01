@@ -113,7 +113,9 @@ Per-model config defined in `main.py` `MODEL_CONFIGS` dict:
 
 ## Fix numbering
 
-Current fix counter: **FIX-145** (FIX-146 is next).
+Current fix counter: **FIX-147** (FIX-148 is next).
+- FIX-147: `loop.py` `_MAX_READ_HISTORY` 200→400 chars — field `next_follow_up_on` in `acct_001.json` appears at ~240 chars; with 200-char limit it was cut off in log history causing model to re-read the file 15+ times per task; 400 chars covers typical account JSON structure fully
+- FIX-146: `loop.py` `_extract_json_from_text()` — collect ALL bracket-matched JSON objects, prefer richest (current_state+function > function-only > first); fixes multi-action Ollama responses like "Action: {tool:read} ... Action: {tool:write} ... {current_state:...,function:{report_completion}}" where previously only the first bare {tool:read} was extracted and executed, discarding the actual write/report operations
 - FIX-145: `prompt.py` code_eval doc — modules datetime/json/re/math are PRE-LOADED in sandbox globals; `import` statement fails because `__import__` is not in _SAFE_BUILTINS; prompt now says "use directly WITHOUT import" with correct/wrong examples; model consistently used `import datetime; ...` causing ImportError: __import__ not found
 - FIX-144: `loop.py` `_verify_json_write()` null-field hint — clarified: if task provided values fill them in, if not null is acceptable; add note to check computed fields like total; prevents 7-step search loop for account_id/issued_on that task never provided (conflicted with FIX-141 null-is-ok rule)
 - FIX-143: `prompt.py` rule 10f — invoice total field: always compute total = sum of line amounts, simple arithmetic, no code_eval needed; do not omit total even if README doesn't show it
