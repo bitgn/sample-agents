@@ -113,7 +113,8 @@ Per-model config defined in `main.py` `MODEL_CONFIGS` dict:
 
 ## Fix numbering
 
-Current fix counter: **FIX-148** (FIX-149 is next).
+Current fix counter: **FIX-149** (FIX-150 is next).
+- FIX-149: `loop.py` `_extract_json_from_text()` — revised FIX-146: add `_MUTATION_TOOLS` priority tier; mutations (write/delete/move/mkdir) now rank ABOVE report_completion; multi-action Ollama responses like "Action:{write rem_001} Action:{write acct_001} {report_completion}" now correctly execute the first write instead of jumping to report_completion and skipping both writes; priority: mutations > full NextStep (non-report) > full NextStep (any) > function-only > first
 - FIX-148: `loop.py` pre-dispatch empty-path guard — write/delete/move/mkdir with empty `path` field is rejected before dispatch (PCM throws `INVALID_ARGUMENT`); injects correction hint asking model to provide the actual path; happens when model generates a multi-action response where the formal NextStep schema has empty placeholder fields while the real data was in bare Action: blocks
 - FIX-147: `loop.py` `_MAX_READ_HISTORY` 200→400 chars — field `next_follow_up_on` in `acct_001.json` appears at ~240 chars; with 200-char limit it was cut off in log history causing model to re-read the file 15+ times per task; 400 chars covers typical account JSON structure fully
 - FIX-146: `loop.py` `_extract_json_from_text()` — collect ALL bracket-matched JSON objects, prefer richest (current_state+function > function-only > first); fixes multi-action Ollama responses like "Action: {tool:read} ... Action: {tool:write} ... {current_state:...,function:{report_completion}}" where previously only the first bare {tool:read} was extracted and executed, discarding the actual write/report operations

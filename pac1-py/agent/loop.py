@@ -307,20 +307,30 @@ def _to_anthropic_messages(log: list) -> tuple[str, list]:
 # JSON extraction from free-form text (fallback when SO not supported)
 # ---------------------------------------------------------------------------
 
-def _extract_json_from_text(text: str) -> dict | None:  # FIX-146
-    """Extract the richest valid JSON object from free-form model output (already de-thought).
+_MUTATION_TOOLS = frozenset({"write", "delete", "move", "mkdir"})
 
-    Preference order:
-    1. ```json fenced block (already specific — return immediately)
-    2. Any object with both 'current_state' and 'function' keys (full NextStep schema)
-    3. Any object with 'function' key
-    4. First valid JSON object
-    5. YAML fallback
 
-    This prevents bare Action: {"tool":"read",...} lines from shadowing the
-    full NextStep object that follows them in multi-action Ollama responses.
+def _obj_mutation_tool(obj: dict) -> str | None:
+    """Return the mutation tool name if obj is a write/delete/move/mkdir action, else None."""
+    tool = obj.get("tool") or (obj.get("function") or {}).get("tool", "")
+    return tool if tool in _MUTATION_TOOLS else None
+
+
+def _extract_json_from_text(text: str) -> dict | None:  # FIX-146 (revised FIX-149)
+    """Extract the most actionable valid JSON object from free-form model output.
+
+    Priority (highest first):
+    1. ```json fenced block — explicit, return immediately
+    2. First object whose tool is a mutation (write/delete/move/mkdir) — bare or wrapped
+       Rationale: multi-action responses often end with report_completion AFTER the writes;
+       executing report_completion first would skip the writes entirely.
+    3. First full NextStep (current_state + function) with a non-report_completion tool
+    4. First full NextStep with any tool (including report_completion)
+    5. First object with a 'function' key
+    6. First valid JSON object
+    7. YAML fallback
     """
-    # Try ```json ... ``` fenced block first — explicit, return immediately
+    # 1. ```json ... ``` fenced block — explicit, return immediately
     m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if m:
         try:
@@ -328,7 +338,7 @@ def _extract_json_from_text(text: str) -> dict | None:  # FIX-146
         except (json.JSONDecodeError, ValueError):
             pass
 
-    # Collect ALL valid bracket-matched JSON objects, prefer the richest one
+    # Collect ALL valid bracket-matched JSON objects
     candidates: list[dict] = []
     pos = 0
     while True:
@@ -354,18 +364,28 @@ def _extract_json_from_text(text: str) -> dict | None:  # FIX-146
             break
 
     if candidates:
-        # Prefer full NextStep schema (current_state + function)
+        # 2. First mutation (write/delete/move/mkdir) — bare {"tool":...} or wrapped {"function":{...}}
+        for obj in candidates:
+            if _obj_mutation_tool(obj):
+                return obj
+        # 3. First full NextStep with non-report_completion tool
+        for obj in candidates:
+            if "current_state" in obj and "function" in obj:
+                fn_tool = (obj.get("function") or {}).get("tool", "")
+                if fn_tool != "report_completion":
+                    return obj
+        # 4. First full NextStep (any tool, including report_completion)
         for obj in candidates:
             if "current_state" in obj and "function" in obj:
                 return obj
-        # Then any object with function key
+        # 5. First object with function key
         for obj in candidates:
             if "function" in obj:
                 return obj
-        # Fallback: first candidate
+        # 6. First candidate
         return candidates[0]
 
-    # YAML fallback — for models that output YAML or Markdown when JSON schema not supported
+    # 7. YAML fallback — for models that output YAML or Markdown when JSON schema not supported
     try:
         import yaml  # pyyaml
         stripped = re.sub(r"```(?:yaml|markdown)?\s*", "", text.strip()).replace("```", "").strip()
