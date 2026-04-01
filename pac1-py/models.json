@@ -17,9 +17,30 @@
   },
   "_profiles": {
     "_comment": "Named ollama_options profiles. Referenced by string in model configs; resolved at load time by main.py FIX-119.",
-    "default":   {"num_ctx": 16384, "temperature": 0.35, "repeat_penalty": 1.3, "repeat_last_n": 256, "top_k": 30, "top_p": 0.90},
-    "think":     {"num_ctx": 16384, "temperature": 0.55, "repeat_penalty": 1.1, "repeat_last_n": 128, "top_k": 45, "top_p": 0.95},
-    "long_ctx":  {"num_ctx": 32768, "temperature": 0.20, "repeat_penalty": 1.4, "repeat_last_n": 512, "top_k": 25, "top_p": 0.85}
+    "default": {
+      "num_ctx": 16384,
+      "temperature": 0.35,
+      "repeat_penalty": 1.3,
+      "repeat_last_n": 256,
+      "top_k": 30,
+      "top_p": 0.90
+    },
+    "think": {
+      "num_ctx": 16384,
+      "temperature": 0.55,
+      "repeat_penalty": 1.1,
+      "repeat_last_n": 128,
+      "top_k": 45,
+      "top_p": 0.95
+    },
+    "long_ctx": {
+      "num_ctx": 32768,
+      "temperature": 0.20,
+      "repeat_penalty": 1.4,
+      "repeat_last_n": 512,
+      "top_k": 25,
+      "top_p": 0.85
+    }
   },
   "_section_ollama_cloud": "--- Ollama cloud endpoint (OLLAMA_BASE_URL=https://your-cloud/v1) ---",
   "minimax-m2.7:cloud": {

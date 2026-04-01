@@ -183,7 +183,15 @@ def run_prephase(
                 try:
                     file_r = vm.read(ReadRequest(path=child_path))
                     if file_r.content:
-                        docs_content_parts.append(f"--- {child_path} ---\n{file_r.content}")
+                        _fc = file_r.content
+                        # [FIX-133] PCM runtime may return partial content for large files.
+                        # Warn agent to re-read for exact counts/enumerations.
+                        if len(_fc) >= 500:
+                            _fc += (
+                                f"\n[PREPHASE EXCERPT — content may be partial."
+                                f" For exact counts or full content use: read('{child_path}')]"
+                            )
+                        docs_content_parts.append(f"--- {child_path} ---\n{_fc}")
                         print(f"{CLI_BLUE}[prephase] read {child_path}:{CLI_CLR} {CLI_GREEN}ok{CLI_CLR}")
                         if _LOG_LEVEL == "DEBUG":
                             print(f"{CLI_BLUE}[prephase] {child_path} content:\n{file_r.content}{CLI_CLR}")
