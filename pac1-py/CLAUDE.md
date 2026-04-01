@@ -113,7 +113,8 @@ Per-model config defined in `main.py` `MODEL_CONFIGS` dict:
 
 ## Fix numbering
 
-Current fix counter: **FIX-149** (FIX-150 is next).
+Current fix counter: **FIX-150** (FIX-151 is next).
+- FIX-150: `loop.py` `_extract_json_from_text()` — `_REQ_PREFIX_RE` regex detects `Req_XXX({...})` patterns before bracket extraction; injects inferred `"tool"` when model omits it (minimax-m2 emits `Req_Read({"path":"..."})` without tool field); also added priority tier 3: bare objects with any known `tool` key preferred over full NextStep, so `{"tool":"search",...}` is executed before trying to interpret a bare `{"path":"..."}` as a NextStep
 - FIX-149: `loop.py` `_extract_json_from_text()` — revised FIX-146: add `_MUTATION_TOOLS` priority tier; mutations (write/delete/move/mkdir) now rank ABOVE report_completion; multi-action Ollama responses like "Action:{write rem_001} Action:{write acct_001} {report_completion}" now correctly execute the first write instead of jumping to report_completion and skipping both writes; priority: mutations > full NextStep (non-report) > full NextStep (any) > function-only > first
 - FIX-148: `loop.py` pre-dispatch empty-path guard — write/delete/move/mkdir with empty `path` field is rejected before dispatch (PCM throws `INVALID_ARGUMENT`); injects correction hint asking model to provide the actual path; happens when model generates a multi-action response where the formal NextStep schema has empty placeholder fields while the real data was in bare Action: blocks
 - FIX-147: `loop.py` `_MAX_READ_HISTORY` 200→400 chars — field `next_follow_up_on` in `acct_001.json` appears at ~240 chars; with 200-char limit it was cut off in log history causing model to re-read the file 15+ times per task; 400 chars covers typical account JSON structure fully

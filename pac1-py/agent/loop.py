@@ -309,6 +309,17 @@ def _to_anthropic_messages(log: list) -> tuple[str, list]:
 
 _MUTATION_TOOLS = frozenset({"write", "delete", "move", "mkdir"})
 
+# Maps Req_XXX class names to canonical tool names used in JSON payloads.
+# Some models (e.g. minimax) emit "Action: Req_Read({...})" without a "tool" field inside the JSON.
+_REQ_CLASS_TO_TOOL: dict[str, str] = {
+    "req_read": "read", "req_write": "write", "req_delete": "delete",
+    "req_list": "list", "req_search": "search", "req_find": "find",
+    "req_tree": "tree", "req_move": "move", "req_mkdir": "mkdir",
+    "req_code_eval": "code_eval",
+}
+# Regex: capture "Req_Xxx" prefix immediately before a JSON object — FIX-150
+_REQ_PREFIX_RE = re.compile(r"Req_(\w+)\s*\(", re.IGNORECASE)
+
 
 def _obj_mutation_tool(obj: dict) -> str | None:
     """Return the mutation tool name if obj is a write/delete/move/mkdir action, else None."""
@@ -316,7 +327,7 @@ def _obj_mutation_tool(obj: dict) -> str | None:
     return tool if tool in _MUTATION_TOOLS else None
 
 
-def _extract_json_from_text(text: str) -> dict | None:  # FIX-146 (revised FIX-149)
+def _extract_json_from_text(text: str) -> dict | None:  # FIX-146 (revised FIX-149, FIX-150)
     """Extract the most actionable valid JSON object from free-form model output.
 
     Priority (highest first):
@@ -324,11 +335,12 @@ def _extract_json_from_text(text: str) -> dict | None:  # FIX-146 (revised FIX-1
     2. First object whose tool is a mutation (write/delete/move/mkdir) — bare or wrapped
        Rationale: multi-action responses often end with report_completion AFTER the writes;
        executing report_completion first would skip the writes entirely.
-    3. First full NextStep (current_state + function) with a non-report_completion tool
-    4. First full NextStep with any tool (including report_completion)
-    5. First object with a 'function' key
-    6. First valid JSON object
-    7. YAML fallback
+    3. First bare object with any known 'tool' key (non-mutation, e.g. search/read/list)
+    4. First full NextStep (current_state + function) with a non-report_completion tool
+    5. First full NextStep with any tool (including report_completion)
+    6. First object with a 'function' key
+    7. First valid JSON object
+    8. YAML fallback
     """
     # 1. ```json ... ``` fenced block — explicit, return immediately
     m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
@@ -338,13 +350,24 @@ def _extract_json_from_text(text: str) -> dict | None:  # FIX-146 (revised FIX-1
         except (json.JSONDecodeError, ValueError):
             pass
 
-    # Collect ALL valid bracket-matched JSON objects
+    # Collect ALL valid bracket-matched JSON objects.
+    # FIX-150: also detect "Req_XXX({...})" patterns and inject "tool" when absent,
+    # since some models (minimax) omit the tool field inside the JSON payload.
     candidates: list[dict] = []
     pos = 0
     while True:
         start = text.find("{", pos)
         if start == -1:
             break
+        # Check for Req_XXX prefix immediately before this {
+        prefix_match = None
+        prefix_region = text[max(0, start - 20):start]
+        pm = _REQ_PREFIX_RE.search(prefix_region)
+        if pm:
+            req_name = pm.group(1).lower()
+            inferred_tool = _REQ_CLASS_TO_TOOL.get(f"req_{req_name}")
+            if inferred_tool:
+                prefix_match = inferred_tool
         depth = 0
         for idx in range(start, len(text)):
             if text[idx] == "{":
@@ -355,6 +378,9 @@ def _extract_json_from_text(text: str) -> dict | None:  # FIX-146 (revised FIX-1
                     try:
                         obj = json.loads(text[start:idx + 1])
                         if isinstance(obj, dict):
+                            # Inject inferred tool name when model omits it (e.g. Req_Read({"path":"..."}))
+                            if prefix_match and "tool" not in obj:
+                                obj = {"tool": prefix_match, **obj}
                             candidates.append(obj)
                     except (json.JSONDecodeError, ValueError):
                         pass
@@ -368,24 +394,28 @@ def _extract_json_from_text(text: str) -> dict | None:  # FIX-146 (revised FIX-1
         for obj in candidates:
             if _obj_mutation_tool(obj):
                 return obj
-        # 3. First full NextStep with non-report_completion tool
+        # 3. First bare object with any known tool key (non-mutation: search/read/list/etc.)
+        for obj in candidates:
+            if "tool" in obj and "current_state" not in obj:
+                return obj
+        # 4. First full NextStep with non-report_completion tool
         for obj in candidates:
             if "current_state" in obj and "function" in obj:
                 fn_tool = (obj.get("function") or {}).get("tool", "")
                 if fn_tool != "report_completion":
                     return obj
-        # 4. First full NextStep (any tool, including report_completion)
+        # 5. First full NextStep (any tool, including report_completion)
         for obj in candidates:
             if "current_state" in obj and "function" in obj:
                 return obj
-        # 5. First object with function key
+        # 6. First object with function key
         for obj in candidates:
             if "function" in obj:
                 return obj
-        # 6. First candidate
+        # 7. First candidate
         return candidates[0]
 
-    # 7. YAML fallback — for models that output YAML or Markdown when JSON schema not supported
+    # 8. YAML fallback — for models that output YAML or Markdown when JSON schema not supported
     try:
         import yaml  # pyyaml
         stripped = re.sub(r"```(?:yaml|markdown)?\s*", "", text.strip()).replace("```", "").strip()
