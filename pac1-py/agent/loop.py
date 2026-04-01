@@ -1051,7 +1051,7 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
             continue
 
         # Unit 8 TASK_LOOKUP: read-only guard — mutations are not allowed for lookup tasks
-        if task_type == "lookup" and isinstance(job.function, (Req_Write, Req_Delete, Req_MkDir, Req_Move)):
+        if task_type == TASK_LOOKUP and isinstance(job.function, (Req_Write, Req_Delete, Req_MkDir, Req_Move)):
             print(f"{CLI_YELLOW}[lookup] Blocked mutation {action_name} — lookup tasks are read-only{CLI_CLR}")
             log.append({"role": "user", "content":
                 "[lookup] Lookup tasks are read-only. Use report_completion to answer the question."})
@@ -1079,7 +1079,7 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
                 _verify_json_write(vm, job, log)
 
             # Unit 8 TASK_INBOX: count inbox/ reads; after >1 hint to process one at a time
-            if task_type == "inbox" and isinstance(job.function, Req_Read):
+            if task_type == TASK_INBOX and isinstance(job.function, Req_Read):
                 if "/inbox/" in job.function.path or job.function.path.startswith("inbox/"):
                     _inbox_read_count += 1
                     if _inbox_read_count > 1:
@@ -1091,9 +1091,8 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
                         log.append({"role": "user", "content": _inbox_hint})
 
             # Unit 8 TASK_EMAIL: post-write outbox schema verify
-            if task_type == "email" and isinstance(job.function, Req_Write) and not txt.startswith("ERROR"):
-                _is_outbox = "/outbox/" in job.function.path or job.function.path.endswith(".json")
-                if _is_outbox:
+            if task_type == TASK_EMAIL and isinstance(job.function, Req_Write) and not txt.startswith("ERROR"):
+                if "/outbox/" in job.function.path:
                     try:
                         _eb = vm.read(ReadRequest(path=job.function.path))
                         _eb_content = MessageToDict(_eb).get("content", "{}")
@@ -1108,7 +1107,7 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
                         log.append({"role": "user", "content": _ev_msg})
 
             # Unit 8 TASK_DISTILL: hint to update thread after writing a card file
-            if task_type == "distill" and isinstance(job.function, Req_Write) and not txt.startswith("ERROR"):
+            if task_type == TASK_DISTILL and isinstance(job.function, Req_Write) and not txt.startswith("ERROR"):
                 if "/cards/" in job.function.path or "card" in _Path(job.function.path).name.lower():
                     _distill_hint = (
                         f"[distill] Card written: {job.function.path}. "

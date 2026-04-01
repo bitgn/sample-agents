@@ -5,7 +5,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
-_JSON_TYPE_RE = re.compile(r'\{[^}]*"type"\s*:\s*"(\w+)"[^}]*\}')  # FIX-82: extract type from partial/wrapped JSON
+_JSON_TYPE_RE = re.compile(r'\{[^}]*"type"\s*:\s*"(\w+)"[^}]*\}')  # extract type from partial/wrapped JSON
 
 from typing import TYPE_CHECKING
 
@@ -18,11 +18,16 @@ if TYPE_CHECKING:
 TASK_DEFAULT = "default"
 TASK_THINK = "think"
 TASK_LONG_CONTEXT = "longContext"
+TASK_EMAIL = "email"
+TASK_LOOKUP = "lookup"
+TASK_INBOX = "inbox"
+TASK_DISTILL = "distill"
+# TASK_CODER = "coder"  ← добавляется Unit 9 после этой строки
 
 
 _PATH_RE = re.compile(r"/[a-zA-Z0-9_\-\.]+")
 
-# FIX-98: structured rule engine — explicit bulk and think patterns
+# Structured rule engine — explicit bulk and think patterns
 _BULK_RE = re.compile(
     r"\b(all files|every file|batch|multiple files|all cards|all threads|each file"
     r"|remove all|delete all|discard all|clean all)\b",
@@ -35,6 +40,28 @@ _THINK_WORDS = re.compile(
     re.IGNORECASE,
 )
 
+# Unit 8: new task type patterns
+_INBOX_RE = re.compile(
+    r"\b(process|check|handle)\s+(the\s+)?inbox\b",
+    re.IGNORECASE,
+)
+
+_EMAIL_RE = re.compile(
+    r"\b(send|compose|write|email)\b.*\b(to|recipient|subject)\b",
+    re.IGNORECASE,
+)
+
+_LOOKUP_RE = re.compile(
+    r"\b(what\s+is|find|lookup|search\s+for)\b.*\b(email|phone|contact|account)\b",
+    re.IGNORECASE,
+)
+
+# Write-verbs used to distinguish lookup from distill/email
+_WRITE_VERBS_RE = re.compile(
+    r"\b(write|create|add|update|send|compose|delete|move|rename)\b",
+    re.IGNORECASE,
+)
+
 
 @dataclass
 class _Rule:
@@ -44,7 +71,8 @@ class _Rule:
     label: str  # for logging
 
 
-# FIX-98: priority-ordered rule matrix (longContext > think > default)
+# Priority-ordered rule matrix
+# Priority: longContext > inbox > email > [coder — Unit 9] > lookup > distill > think > default
 _RULE_MATRIX: list[_Rule] = [
     # Rule 1: bulk-scope keywords → longContext
     _Rule(
@@ -53,7 +81,36 @@ _RULE_MATRIX: list[_Rule] = [
         result=TASK_LONG_CONTEXT,
         label="bulk-keywords",
     ),
-    # Rule 2: reasoning keywords AND NOT bulk → think
+    # Rule 2: inbox process/check/handle → inbox
+    _Rule(
+        must=[_INBOX_RE],
+        must_not=[_BULK_RE],
+        result=TASK_INBOX,
+        label="inbox-keywords",
+    ),
+    # Rule 3: send/compose email with recipient/subject → email
+    _Rule(
+        must=[_EMAIL_RE],
+        must_not=[_BULK_RE, _INBOX_RE],
+        result=TASK_EMAIL,
+        label="email-keywords",
+    ),
+    # [Unit 9 placeholder for TASK_CODER rule here]
+    # Rule 4: lookup contact/email/phone with no write intent → lookup
+    _Rule(
+        must=[_LOOKUP_RE],
+        must_not=[_BULK_RE, _INBOX_RE, _EMAIL_RE, _WRITE_VERBS_RE],
+        result=TASK_LOOKUP,
+        label="lookup-keywords",
+    ),
+    # Rule 5: think-words AND write-verbs simultaneously → distill
+    _Rule(
+        must=[_THINK_WORDS, _WRITE_VERBS_RE],
+        must_not=[_BULK_RE, _INBOX_RE, _EMAIL_RE],
+        result=TASK_DISTILL,
+        label="distill-keywords",
+    ),
+    # Rule 6: reasoning keywords AND NOT bulk → think
     _Rule(
         must=[_THINK_WORDS],
         must_not=[_BULK_RE],
@@ -64,7 +121,7 @@ _RULE_MATRIX: list[_Rule] = [
 
 
 def classify_task(task_text: str) -> str:
-    """FIX-98: structured rule engine (replaces bare regex chain).
+    """Regex-based structured rule engine for task type classification.
     Priority: 3+-paths > bulk-keywords (longContext) > think-keywords > default."""
     # path_count cannot be expressed as regex rule — handle separately
     if len(_PATH_RE.findall(task_text)) >= 3:
@@ -77,19 +134,36 @@ def classify_task(task_text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# FIX-75: LLM-based task classification (pre-requisite before agent start)
+# LLM-based task classification (pre-requisite before agent start)
 # ---------------------------------------------------------------------------
 
 _CLASSIFY_SYSTEM = (
     "You are a task router. Classify the task into exactly one type. "
     'Reply ONLY with valid JSON: {"type": "<type>"} where <type> is one of: '
-    "think, longContext, default.\n"
-    "think = analysis/reasoning/summarize/compare/evaluate/explain/distill\n"
+    "think, longContext, email, lookup, inbox, distill, default.\n"
     "longContext = batch/all files/multiple files/3+ explicit file paths\n"
+    "inbox = process/check/handle the inbox\n"
+    "email = send/compose/write email to a recipient\n"
+    "lookup = find/lookup contact info (email/phone) with no write action\n"
+    "distill = analysis/reasoning AND writing a card/note/summary\n"
+    "think = analysis/reasoning/summarize/compare/evaluate/explain (no write)\n"
     "default = everything else (read, write, create, capture, delete, move, standard tasks)"
 )
 
-_VALID_TYPES = frozenset({TASK_THINK, TASK_LONG_CONTEXT, TASK_DEFAULT})
+_VALID_TYPES = frozenset({TASK_THINK, TASK_LONG_CONTEXT, TASK_DEFAULT,
+                          TASK_EMAIL, TASK_LOOKUP, TASK_INBOX, TASK_DISTILL})
+
+# Ordered keyword → task_type table for plain-text LLM response fallback.
+# Most-specific types first; longContext listed with all common spellings.
+_PLAINTEXT_FALLBACK: list[tuple[tuple[str, ...], str]] = [
+    (("longcontext", "long_context", "long context"), TASK_LONG_CONTEXT),
+    (("inbox",),   TASK_INBOX),
+    (("email",),   TASK_EMAIL),
+    (("lookup",),  TASK_LOOKUP),
+    (("distill",), TASK_DISTILL),
+    (("think",),   TASK_THINK),
+    (("default",), TASK_DEFAULT),
+]
 
 
 def _count_tree_files(prephase_log: list) -> int:
@@ -110,35 +184,42 @@ def _count_tree_files(prephase_log: list) -> int:
 
 def classify_task_llm(task_text: str, model: str, model_config: dict,
                       vault_hint: str | None = None) -> str:
-    """FIX-75: Use LLM (classifier model) to classify task type.
-    Uses call_llm_raw() for 3-tier routing + retry; falls back to regex.
-    FIX-79: treat empty string same as None (empty response after retries).
-    FIX-81: truncate to 150 chars — enough for task verb, avoids injection tail.
-    FIX-82: JSON regex-extraction fallback if json.loads fails.
-    FIX-99: optional vault_hint appended to user message for context.
-    FIX-120: regex pre-check fast-path — skip LLM when regex is already confident."""
-    # FIX-120: if regex already signals think/longContext, skip the LLM call entirely.
-    # Rationale: explicit keywords (distill, analyze, all-files, batch) are unambiguous;
-    # LLM call adds latency + GPU contention without changing the outcome.
-    # LLM is only useful when regex returns 'default' and vault context might reveal
-    # that the task is actually analytical or bulk-scope.
+    """Classify task type using an LLM, with regex fast-path and multi-tier fallbacks.
+
+    Fast-path: if regex already returns a non-default type (explicit bulk/think/inbox/email
+    keywords), the LLM call is skipped entirely — those keywords are unambiguous and the
+    LLM would only add latency. The LLM is only invoked when regex returns 'default' and
+    vault context (AGENTS.MD) might reveal the task is actually analytical or bulk-scope.
+
+    ollama_options filtering: only 'num_ctx', 'temperature', and 'seed' are forwarded to
+    the classifier call. Agent-loop options (repeat_penalty, repeat_last_n, top_k) are
+    tuned for long generation and cause empty responses for the short 8-token output.
+
+    Token budget: max_completion_tokens is capped at 512. The classifier output is always
+    {"type":"X"} (~8 tokens); 512 leaves headroom for implicit reasoning without wasting
+    the model's full budget.
+
+    Retry policy: max_retries=1 (one retry on empty response, then fall back to regex).
+
+    Returns one of the TASK_* literals defined in this module.
+    """
+    # Regex pre-check fast-path: if regex is already confident, skip the LLM call.
+    # Explicit keywords (distill, analyze, all-files, batch) are unambiguous;
+    # LLM is only useful when regex returns 'default' and vault context might change the outcome.
     _regex_pre = classify_task(task_text)
     if _regex_pre != TASK_DEFAULT:
-        print(f"[MODEL_ROUTER][FIX-120] Regex-confident type={_regex_pre!r}, skipping LLM")
+        print(f"[MODEL_ROUTER] Regex-confident type={_regex_pre!r}, skipping LLM")
         return _regex_pre
-    user_msg = f"Task: {task_text[:150]}"  # FIX-81: 600→150 to avoid injection content
-    if vault_hint:  # FIX-99: add vault context when available
-        # FIX-121: truncate vault_hint to 400 chars — first lines of AGENTS.MD contain the
-        # role/folder summary which is sufficient for classification. Full AGENTS.MD (~1000+
-        # chars) passed via ollama options (repeat_penalty, repeat_last_n tuned for long
-        # agent steps) causes empty responses under GPU load for this short 8-token output.
+    user_msg = f"Task: {task_text[:150]}"  # truncate to 150 chars to avoid injection content
+    if vault_hint:
+        # Truncate vault_hint to 400 chars — first lines of AGENTS.MD contain the
+        # role/folder summary which is sufficient for classification.
         user_msg += f"\nContext: {vault_hint[:400]}"
-    # FIX-94: cap classifier tokens — output is always {"type":"X"} (~8 tokens);
-    # 512 leaves room for implicit thinking chains without wasting full model budget.
-    # FIX-121: strip agent-loop ollama_options (repeat_penalty/repeat_last_n tuned for
-    # long generation) — classifier only needs num_ctx and temperature.
-    _base_opts = model_config.get("ollama_options", {})
-    _cls_opts = {k: v for k, v in _base_opts.items() if k in ("num_ctx", "temperature")}
+    # Cap classifier tokens — output is always {"type":"X"} (~8 tokens);
+    # strip agent-loop ollama_options, classifier only needs num_ctx, temperature, seed.
+    # Priority: ollama_options_classifier (deterministic profile) > ollama_options (agent profile).
+    _base_opts = model_config.get("ollama_options_classifier") or model_config.get("ollama_options", {})
+    _cls_opts = {k: v for k, v in _base_opts.items() if k in ("num_ctx", "temperature", "seed")}
     _cls_cfg = {
         **model_config,
         "max_completion_tokens": min(model_config.get("max_completion_tokens", 512), 512),
@@ -147,38 +228,35 @@ def classify_task_llm(task_text: str, model: str, model_config: dict,
     try:
         raw = call_llm_raw(_CLASSIFY_SYSTEM, user_msg, model, _cls_cfg,
                            max_tokens=_cls_cfg["max_completion_tokens"],
-                           think=False,  # FIX-103: disable think + use configured token budget
-                           max_retries=1)  # FIX-121: 1 retry (was 0) — empty response under load
-        if not raw:  # FIX-79: catch both None and "" (empty string after retry exhaustion)
-            print("[MODEL_ROUTER][FIX-75] All LLM tiers failed or empty, falling back to regex")
+                           think=False,
+                           max_retries=1)
+        if not raw:  # catch both None and "" (empty string after retry exhaustion)
+            print("[MODEL_ROUTER] All LLM tiers failed or empty, falling back to regex")
             return classify_task(task_text)
         # Try strict JSON parse first
         try:
             detected = str(json.loads(raw).get("type", "")).strip()
         except (json.JSONDecodeError, AttributeError):
-            # FIX-82: JSON parse failed — try regex extraction from response text
+            # JSON parse failed — try regex extraction from response text
             m = _JSON_TYPE_RE.search(raw)
             detected = m.group(1).strip() if m else ""
             if detected:
-                print(f"[MODEL_ROUTER][FIX-82] Extracted type via regex from: {raw!r}")
-        # FIX-105: plain-text keyword extraction (after JSON + regex fallbacks)
+                print(f"[MODEL_ROUTER] Extracted type via regex from: {raw!r}")
+        # Plain-text keyword extraction (after JSON + regex fallbacks)
+        # Ordered: most-specific types first; longContext checked with all its spellings.
         if not detected:
             raw_lower = raw.lower()
-            if "longcontext" in raw_lower or "long_context" in raw_lower or "long context" in raw_lower:
-                detected = TASK_LONG_CONTEXT
-                print(f"[MODEL_ROUTER][FIX-105] Extracted type 'longContext' from plain text: {raw[:60]!r}")
-            elif "think" in raw_lower:
-                detected = TASK_THINK
-                print(f"[MODEL_ROUTER][FIX-105] Extracted type 'think' from plain text: {raw[:60]!r}")
-            elif "default" in raw_lower:
-                detected = TASK_DEFAULT
-                print(f"[MODEL_ROUTER][FIX-105] Extracted type 'default' from plain text: {raw[:60]!r}")
+            for keywords, task_type in _PLAINTEXT_FALLBACK:
+                if any(kw in raw_lower for kw in keywords):
+                    detected = task_type
+                    print(f"[MODEL_ROUTER] Extracted type {task_type!r} from plain text: {raw[:60]!r}")
+                    break
         if detected in _VALID_TYPES:
-            print(f"[MODEL_ROUTER][FIX-75] LLM classified task as '{detected}'")
+            print(f"[MODEL_ROUTER] LLM classified task as '{detected}'")
             return detected
-        print(f"[MODEL_ROUTER][FIX-75] LLM returned unknown type '{detected}', falling back to regex")
+        print(f"[MODEL_ROUTER] LLM returned unknown type '{detected}', falling back to regex")
     except Exception as exc:
-        print(f"[MODEL_ROUTER][FIX-75] LLM classification failed ({exc}), falling back to regex")
+        print(f"[MODEL_ROUTER] LLM classification failed ({exc}), falling back to regex")
     return classify_task(task_text)
 
 
@@ -188,14 +266,23 @@ class ModelRouter:
     default: str
     think: str
     long_context: str
-    # FIX-90: classifier is a first-class routing tier — dedicated model for classification only
+    # Classifier is a first-class routing tier — dedicated model for classification only
     classifier: str
+    # Unit 8: new task type model overrides (fall back to default/think if not provided)
+    email: str = ""
+    lookup: str = ""
+    inbox: str = ""
+    # coder: str = ""  ← Unit 9 adds this
     configs: dict[str, dict] = field(default_factory=dict)
 
     def _select_model(self, task_type: str) -> str:
         return {
             TASK_THINK: self.think,
             TASK_LONG_CONTEXT: self.long_context,
+            TASK_EMAIL: self.email or self.default,
+            TASK_LOOKUP: self.lookup or self.default,
+            TASK_INBOX: self.inbox or self.think,
+            TASK_DISTILL: self.think,
         }.get(task_type, self.default)
 
     def resolve(self, task_text: str) -> tuple[str, dict, str]:
@@ -206,20 +293,20 @@ class ModelRouter:
         return model_id, self.configs.get(model_id, {}), task_type
 
     def _adapt_config(self, cfg: dict, task_type: str) -> dict:
-        """FIX-119: apply task-type specific ollama_options overlay (shallow merge).
+        """Apply task-type specific ollama_options overlay (shallow merge).
         Merges ollama_options_{task_type} on top of base ollama_options if present."""
         key = f"ollama_options_{task_type}"
         override = cfg.get(key)
         if not override:
             return cfg
         adapted = {**cfg, "ollama_options": {**cfg.get("ollama_options", {}), **override}}
-        print(f"[MODEL_ROUTER][FIX-119] adapted ollama_options for type={task_type}: {adapted['ollama_options']}")
+        print(f"[MODEL_ROUTER] Adapted ollama_options for type={task_type}: {adapted['ollama_options']}")
         return adapted
 
     def resolve_after_prephase(self, task_text: str, pre: "PrephaseResult") -> tuple[str, dict, str]:
-        """FIX-117: classify once AFTER prephase using AGENTS.MD content as context.
+        """Classify once after prephase using AGENTS.MD content as context.
         AGENTS.MD describes task workflows and complexity — single LLM call with full context.
-        FIX-119: applies task-type adaptive ollama_options via _adapt_config before returning."""
+        Applies task-type adaptive ollama_options via _adapt_config before returning."""
         file_count = _count_tree_files(pre.log)
         vault_hint = None
         if pre.agents_md_content:
@@ -229,8 +316,6 @@ class ModelRouter:
             vault_hint=vault_hint,
         )
         model_id = self._select_model(task_type)
-        print(f"[MODEL_ROUTER][FIX-117] type={task_type} → model={model_id}")
+        print(f"[MODEL_ROUTER] type={task_type} → model={model_id}")
         adapted_cfg = self._adapt_config(self.configs.get(model_id, {}), task_type)
         return model_id, adapted_cfg, task_type
-
-
