@@ -539,7 +539,8 @@ def _call_llm(log: list, model: str, max_tokens: int, cfg: dict) -> tuple[NextSt
         print(f"{CLI_YELLOW}[OpenRouter] Falling back to Ollama{CLI_CLR}")
 
     # --- Ollama fallback (local, tier 3) ---
-    ollama_model = cfg.get("ollama_model") or os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
+    # FIX-134: use model variable as fallback, not hardcoded "qwen2.5:7b"
+    ollama_model = cfg.get("ollama_model") or os.environ.get("OLLAMA_MODEL", model)
     extra: dict = {}
     if "ollama_think" in cfg:
         extra["think"] = cfg["ollama_think"]
