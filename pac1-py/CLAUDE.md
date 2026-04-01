@@ -113,7 +113,8 @@ Per-model config defined in `main.py` `MODEL_CONFIGS` dict:
 
 ## Fix numbering
 
-Current fix counter: **FIX-150** (FIX-151 is next).
+Current fix counter: **FIX-151** (FIX-152 is next).
+- FIX-151: `prompt.py` rule 9b — reschedule formula made explicit: `TOTAL_DAYS = N_days + 8` with examples ("2 weeks → 14+8=22 days", "1 month → 30+8=38 days"); previously `new_date = OLD_R + N_days + 8` was ignored by models that computed only `OLD_R + N_days`; suggest using code_eval for the arithmetic
 - FIX-150: `loop.py` `_extract_json_from_text()` — `_REQ_PREFIX_RE` regex detects `Req_XXX({...})` patterns before bracket extraction; injects inferred `"tool"` when model omits it (minimax-m2 emits `Req_Read({"path":"..."})` without tool field); also added priority tier 3: bare objects with any known `tool` key preferred over full NextStep, so `{"tool":"search",...}` is executed before trying to interpret a bare `{"path":"..."}` as a NextStep
 - FIX-149: `loop.py` `_extract_json_from_text()` — revised FIX-146: add `_MUTATION_TOOLS` priority tier; mutations (write/delete/move/mkdir) now rank ABOVE report_completion; multi-action Ollama responses like "Action:{write rem_001} Action:{write acct_001} {report_completion}" now correctly execute the first write instead of jumping to report_completion and skipping both writes; priority: mutations > full NextStep (non-report) > full NextStep (any) > function-only > first
 - FIX-148: `loop.py` pre-dispatch empty-path guard — write/delete/move/mkdir with empty `path` field is rejected before dispatch (PCM throws `INVALID_ARGUMENT`); injects correction hint asking model to provide the actual path; happens when model generates a multi-action response where the formal NextStep schema has empty placeholder fields while the real data was in bare Action: blocks
