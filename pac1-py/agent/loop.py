@@ -761,8 +761,10 @@ def _verify_json_write(vm: PcmRuntimeClientSync, job: "NextStep", log: list,
         _bad = [k for k, v in _wb_parsed.items() if v is None or v == ""]
         if _bad:
             _fix_msg = (
-                f"[verify] File {job.function.path} has unset/empty fields: {_bad}. "
-                "Read the file, fill in ALL required fields with correct values, then write it again."
+                f"[verify] File {job.function.path} has null/empty fields: {_bad}. "  # FIX-144
+                "If the task provided values for these fields, fill them in and rewrite. "
+                "If the task did NOT provide these values, null is acceptable — do not search for them. "
+                "Check only that computed fields like 'total' are correct (total = sum of line amounts)."
             )
             print(f"{CLI_YELLOW}{_fix_msg}{CLI_CLR}")
             log.append({"role": "user", "content": _fix_msg})

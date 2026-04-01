@@ -120,6 +120,9 @@ Before acting on any folder or file type:
     e. If the task clearly names what to create but omits some schema fields (e.g. account_id not given):  # FIX-141
        use null for those fields and WRITE THE FILE. Do NOT CLARIFY for missing sub-fields.
        CLARIFY only when the task ACTION itself is unclear (e.g. "create it" with no name/type given).
+    f. Invoice total field: ALWAYS compute total = sum of all line amounts and include it.  # FIX-143
+       Simple arithmetic — no code_eval needed. Example: lines [{amount:20},{amount:20}] → total: 40.
+       Do NOT omit total even if README example doesn't show it; derive it from the provided line amounts.
 11. Finding the latest invoice for an account: list my-invoices/ → filter filenames matching
     the account number. Latest = highest suffix number.
     Do NOT guess or use a different account's invoices.

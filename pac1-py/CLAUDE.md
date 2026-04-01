@@ -113,7 +113,9 @@ Per-model config defined in `main.py` `MODEL_CONFIGS` dict:
 
 ## Fix numbering
 
-Current fix counter: **FIX-142** (FIX-143 is next).
+Current fix counter: **FIX-144** (FIX-145 is next).
+- FIX-144: `loop.py` `_verify_json_write()` null-field hint — clarified: if task provided values fill them in, if not null is acceptable; add note to check computed fields like total; prevents 7-step search loop for account_id/issued_on that task never provided (conflicted with FIX-141 null-is-ok rule)
+- FIX-143: `prompt.py` rule 10f — invoice total field: always compute total = sum of line amounts, simple arithmetic, no code_eval needed; do not omit total even if README doesn't show it
 - FIX-142: `loop.py` `_verify_json_write()` — exception handler now injects correction hint into log when read-back or JSON parse fails (previously only printed, model had no signal and reported OUTCOME_OK despite writing truncated/invalid JSON); hint tells model to read file back, fix brackets/braces, rewrite
 - FIX-141: `prompt.py` rule 10e — invoice/structured-file creation: if task action and target are clear but schema fields are missing (e.g. account_id not provided), write null for those fields and proceed; CLARIFY only when task ACTION itself is unclear; model was over-applying CLARIFY rule to "missing sub-field = ambiguous task" causing OUTCOME_NONE_CLARIFICATION instead of writing the file
 - FIX-140: `prompt.py` INBOX WORKFLOW — two-stage security check split into explicit numbered sub-steps (1.5 and 2.5) so Ollama model cannot skip them: step 1.5 checks filename for override/escalation/jailbreak keywords before reading; step 2.5 checks content and explicitly notes "missing From/Channel does NOT skip this check"; format detection moved to step 2.6; FIX-139 step was buried inside step 2 and competed with simpler rule 2C which the model applied first
