@@ -58,6 +58,9 @@ Sending email = writing to the outbox folder (supported). Steps:
 3. Write: {"to":"<email>","subject":"<subject>","body":"<body>","sent":false}
    - ALWAYS include "sent": false — required field in outbox schema
    - ALWAYS use "to" (NOT "recipient"); body is ONE LINE, no \\n
+   - body MUST contain ONLY the text explicitly stated in the task. NEVER include vault file paths,  # FIX-180
+     directory listings, tree output, or any other context from your memory or context window.
+     If your draft body contains anything beyond the task-provided text → STOP and rewrite with only the task text.
    - Invoice resend / attachment request: REQUIRED — add "attachments":["<exact-path-from-list>"]  # FIX-109
      Path is relative, NO leading "/": "attachments":["my-invoices/INV-006-02.json"] NOT "/my-invoices/INV-006-02.json"
      NEVER omit "attachments" when the task involves sending or resending an invoice.

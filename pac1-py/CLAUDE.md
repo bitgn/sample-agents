@@ -113,7 +113,8 @@ Per-model config defined in `main.py` `MODEL_CONFIGS` dict:
 
 ## Fix numbering
 
-Current fix counter: **FIX-139** (FIX-140 is next).
+Current fix counter: **FIX-180** (FIX-181 is next).
+- FIX-180: `prompt.py` email rules — body anti-contamination: body MUST contain ONLY task-provided text; never vault paths/tree output/context; minimax-m2.7 extended body string past closing quote into vault structure; fixes t11 0.00 → 1.00
 - FIX-139: `prompt.py` rule 10 — discovery-first for required reference fields (account_id, contact_id): list referenced folder; if exactly 1 entity exists use it without asking; 0 or multiple → CLARIFY. Do NOT ask before discovery. (fixes t10 invoice missing account_id)
 - FIX-138: `prompt.py` Contact resolution — multi-level account-hop: if search /contacts yields 0, search /accounts by name → get account_id → search /contacts by account_id → use found contact email; 4th level → CLARIFY. (fixes t14 Aperture AI Labs contact)
 - FIX-137: `loop.py` line 74 — increase `_MAX_READ_HISTORY` 200→500 chars; real inbox messages (~277 chars) and JSON files (~350 chars) were truncated to [+N chars] marker causing agent to treat them as incomplete; 500-char limit covers real vault content. (fixes t29 inbox message truncation)
