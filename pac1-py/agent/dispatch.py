@@ -161,6 +161,7 @@ def _call_coder_model(task: str, context_vars: dict, coder_model: str, coder_cfg
             max_tokens=256,  # FIX-164: short code only — was 512
             think=False,
             max_retries=1,   # FIX-164: 1 retry max — was 2 (3 attempts × slow model = starvation)
+            plain_text=True,  # FIX-181: coder must output Python, not JSON
         )
         return _extract_code_block(raw or "print('[coder] empty response')")
     except TimeoutError as _te:
@@ -340,11 +341,13 @@ def call_llm_raw(
     max_tokens: int = 20,
     think: bool | None = None,  # None=use cfg, False=disable, True=enable
     max_retries: int = 3,  # classifier passes 0 → 1 attempt, no retries
+    plain_text: bool = False,  # FIX-181: skip response_format (for code generation, not JSON)
 ) -> str | None:
     """Lightweight LLM call with 3-tier routing and transient-error retry.
     Returns raw text (think blocks stripped), or None if all tiers fail.
     Used by classify_task_llm(); caller handles JSON parsing and fallback.
-    max_retries controls retry count per tier (0 = 1 attempt only)."""
+    max_retries controls retry count per tier (0 = 1 attempt only).
+    plain_text=True skips response_format constraints (use for code generation)."""
 
     msgs = [
         {"role": "system", "content": system},
@@ -382,7 +385,7 @@ def call_llm_raw(
     # --- Tier 2: OpenRouter (skip Ollama-format models) ---
     if openrouter_client is not None and not is_ollama_model(model):
         so_mode = probe_structured_output(openrouter_client, model, hint=cfg.get("response_format_hint"))
-        rf = {"type": "json_object"} if so_mode == "json_object" else None
+        rf = {"type": "json_object"} if (so_mode == "json_object" and not plain_text) else None  # FIX-181
         for attempt in range(max_retries + 1):
             try:
                 create_kwargs: dict = dict(model=model, max_tokens=max_tokens, messages=msgs)
@@ -426,9 +429,10 @@ def call_llm_raw(
             # naturally; explicit cap causes empty responses under GPU load.
             _create_kw: dict = dict(
                 model=ollama_model,
-                response_format={"type": "json_object"},
                 messages=msgs,
             )
+            if not plain_text:  # FIX-181: skip json_object for code generation
+                _create_kw["response_format"] = {"type": "json_object"}
             if _ollama_extra:
                 _create_kw["extra_body"] = _ollama_extra
             resp = ollama_client.chat.completions.create(**_create_kw)
