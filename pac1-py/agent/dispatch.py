@@ -145,11 +145,6 @@ def _call_coder_model(task: str, context_vars: dict, coder_model: str, coder_cfg
     def _coder_timeout(_sig, _frame):
         raise TimeoutError(f"coder model timed out after {_CODER_TIMEOUT_S}s")
 
-    # FIX-177: reject oversized context_vars before calling coder model
-    _ctx_total = sum(len(str(v)) for v in context_vars.values())
-    if _ctx_total > 2000:
-        return f"[code_eval rejected] context_vars too large ({_ctx_total} chars). Use 'paths' field for vault files instead of embedding content in context_vars."
-
     old_handler = _signal.signal(_signal.SIGALRM, _coder_timeout)
     _signal.alarm(_CODER_TIMEOUT_S)
     try:
@@ -583,6 +578,11 @@ def dispatch(vm: PcmRuntimeClientSync, cmd: BaseModel,  # FIX-163: coder sub-age
         # FIX-163: delegate code generation to MODEL_CODER; only task+vars passed (no loop history)
         # FIX-166: auto-read vault paths via vm.read(); inject content as context_vars so coder
         # model never needs to embed file contents in context — paths keep context_vars compact.
+        # FIX-177 guard: check model-provided context_vars BEFORE path injection.
+        # Path-injected content is legitimate and may be large; model-embedded content is not.
+        _direct_total = sum(len(str(v)) for v in cmd.context_vars.values())
+        if _direct_total > 2000:
+            return f"[code_eval rejected] context_vars too large ({_direct_total} chars). Use 'paths' field for vault files instead of embedding content in context_vars."
         ctx = dict(cmd.context_vars)
         for _vpath in cmd.paths:
             _key = _vpath.lstrip("/").replace("/", "__").replace(".", "_")

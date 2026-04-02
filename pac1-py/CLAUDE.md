@@ -113,7 +113,8 @@ Per-model config defined in `main.py` `MODEL_CONFIGS` dict:
 
 ## Fix numbering
 
-Current fix counter: **FIX-181** (FIX-182 is next).
+Current fix counter: **FIX-182** (FIX-183 is next).
+- FIX-182: `dispatch.py` — move FIX-177 context_vars size guard from `_call_coder_model()` to `dispatch()` BEFORE path injection; paths are read by dispatch.py and legitimately make ctx large — the guard must only block MODEL-embedded content (cmd.context_vars), not dispatch-injected path content; previously guard fired on every paths-based call → returned error string → SyntaxError when executed as Python
 - FIX-181: `dispatch.py` `call_llm_raw()` — add `plain_text=True` parameter; when set, skips `response_format=json_object` for OpenRouter and Ollama tiers; used by `_call_coder_model()` to get bare Python instead of JSON-wrapped code; root cause: Ollama tier always forced json_object → coder model output `{"code": "..."}` → SyntaxError at line 1; fixes t30 with Ollama-format models (qwen3.5:397b-cloud etc.)
 - FIX-180: `prompt.py` email write rules — body anti-contamination: body MUST contain ONLY task-provided text; NEVER include vault paths, directory listings, or any other context; fixes t11 body = "Subj" + vault tree leak
 - FIX-179: `prompt.py` INBOX WORKFLOW — OTP pre-check moved before admin/non-admin channel split; applies to ALL channel messages; previously OTP exception was only reachable from admin-channel branch, so Discord (non-admin) + OTP token never triggered elevation; fixes t24 0.00 → 1.00
