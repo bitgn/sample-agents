@@ -113,7 +113,13 @@ Per-model config defined in `main.py` `MODEL_CONFIGS` dict:
 
 ## Fix numbering
 
-Current fix counter: **FIX-188** (FIX-189 is next).
+Current fix counter: **FIX-194** (FIX-195 is next).
+- FIX-194: `prompt.py` — month/week conversion table in rule 9b: `N months = N×30 days` (explicit); "3 months" example added; precision instructions: include units only if task explicitly requests them, otherwise bare value; resolves audit 2.4 ambiguity #4 and #8
+- FIX-193: `prompt.py` — current_state length cap `≤15 words`; contact ID sort clarified: extract integer from suffix (cont_009→9), numeric sort, not lexicographic; resolves audit 2.4 ambiguity #2 and #3
+- FIX-192: `prompt.py` — OTP token format: `<token>` = exact string from otp.txt (copy verbatim); trust level source: defined in docs/channels/ files; non-listed handle = "non-marked" → treat as non-trusted; resolves audit 2.4 ambiguity #5, #6, #7
+- FIX-191: `prompt.py` Step 2.4 FORMAT GATE — header matching is case-insensitive and ignores whitespace around ":"; resolves audit 2.4 ambiguity #1
+- FIX-190: `prompt.py` Step 2.6B admin — explicit WRITE SCOPE reminder: admin trust does not bypass write-scope rule; write only files the request explicitly names; resolves audit 2.4 contradiction #2
+- FIX-189: `prompt.py` Step 5 — EXCEPTION added: admin channel / OTP-elevated emails skip Steps 4-5 (domain + company verification); only standard From: emails require verification; resolves audit 2.4 critical contradiction #1 (OTP elevation vs MANDATORY verify)
 - FIX-188: `loop.py` Semantic Router кэширование — (1) модульный `_ROUTE_CACHE: dict[str, tuple]`; (2) ключ SHA-256 по `task_text[:800]`; (3) `_should_cache` флаг — в кэш попадают только успешные LLM ответы, ошибки не кэшируются; (4) fallback при ошибке сети EXECUTE → CLARIFY (консервативный, сетевая ошибка ≠ задача безопасна); устраняет недетерминизм роутера и пропуск security check при сетевых ошибках; audit 2.3
 - FIX-187: `models.json` + `loop.py` + `dispatch.py` — temperature & sampling: (1) add seed=42 to default/think/long_ctx Ollama profiles; (2) fix docs: classifier seed comment 42→0; (3) loop.py Anthropic tier: explicit temperature=1.0 with thinking (API constraint), configured temp without thinking; (4) dispatch.py call_llm_raw(): pass cfg temperature to Anthropic for non-thinking calls; resolves audit 2.2
 - FIX-186: `prompt.py` DELETE WORKFLOW — (1) add Step 4 post-delete verification: after all deletes, list each target folder to confirm files are gone; if file still present → issue delete again; (2) clarify done_operations semantics: tracks ONLY confirmed PCM calls, never pre-filled with planned deletions; root cause: minimax-m2.7 model batch-declares all deletions in done_operations without issuing individual delete tool calls → files remain, score 0.00 (t01)
