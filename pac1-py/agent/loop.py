@@ -4,7 +4,7 @@ import os
 import re
 import time
 from collections import Counter, deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from google.protobuf.json_format import MessageToDict
 from connectrpc.errors import ConnectError
@@ -146,6 +146,39 @@ class _StepFact:
     kind: str    # "list", "read", "search", "write", "delete", "move", "mkdir"
     path: str
     summary: str  # compact 1-line description
+
+
+@dataclass
+class _LoopState:
+    """FIX-195: Mutable state threaded through run_loop phases.
+    Encapsulates 8 state vars + 7 token counters previously scattered as locals."""
+    # Conversation log and prefix (reassigned by _compact_log, so must live here)
+    log: list = field(default_factory=list)
+    preserve_prefix: list = field(default_factory=list)
+    # Stall detection (FIX-74)
+    action_fingerprints: deque = field(default_factory=lambda: deque(maxlen=6))
+    steps_since_write: int = 0
+    error_counts: Counter = field(default_factory=Counter)
+    stall_hint_active: bool = False
+    # Step facts for rolling digest (FIX-125)
+    step_facts: list = field(default_factory=list)
+    # Unit 8: TASK_INBOX files read counter
+    inbox_read_count: int = 0
+    # Search retry counter — max 2 retries per unique pattern (FIX-129)
+    search_retry_counts: dict = field(default_factory=dict)
+    # Server-authoritative done_operations ledger (FIX-111)
+    done_ops: list = field(default_factory=list)
+    ledger_msg: dict | None = None
+    # Tracked listed dirs (auto-list optimisation)
+    listed_dirs: set = field(default_factory=set)
+    # Token/step counters
+    total_in_tok: int = 0
+    total_out_tok: int = 0
+    total_elapsed_ms: int = 0
+    total_eval_count: int = 0
+    total_eval_ms: int = 0
+    step_count: int = 0
+    llm_call_count: int = 0
 
 
 def _extract_fact(action_name: str, action, result_txt: str) -> "_StepFact | None":
@@ -937,51 +970,47 @@ _ROUTE_SCHEMA = json.dumps({
 
 
 # ---------------------------------------------------------------------------
-# Main agent loop
+# FIX-195: run_loop phases extracted from God Function
 # ---------------------------------------------------------------------------
 
-def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
-             pre: PrephaseResult, cfg: dict, task_type: str = "default",
-             coder_model: str = "", coder_cfg: "dict | None" = None) -> dict:  # FIX-163
-    """Run main agent loop. Returns token usage stats dict.
+def _st_to_result(st: _LoopState) -> dict:
+    """Convert _LoopState counters to run_loop() return dict."""  # FIX-195
+    return {
+        "input_tokens": st.total_in_tok,
+        "output_tokens": st.total_out_tok,
+        "llm_elapsed_ms": st.total_elapsed_ms,
+        "ollama_eval_count": st.total_eval_count,
+        "ollama_eval_ms": st.total_eval_ms,
+        "step_count": st.step_count,
+        "llm_call_count": st.llm_call_count,
+    }
 
-    task_type: classifier result; drives per-type loop strategies (Unit 8):
-      - lookup: read-only guard — blocks write/delete/move/mkdir
-      - inbox: hints after >1 inbox/ files read to process one message at a time
-      - email: post-write outbox verify via EmailOutbox schema when available
-      - distill: hint to update thread file after writing a card
-    coder_model/coder_cfg: FIX-163 — passed to dispatch() for Req_CodeEval sub-agent calls.
-    """
-    log = pre.log
-    preserve_prefix = pre.preserve_prefix
 
-    max_tokens = cfg.get("max_completion_tokens", 16384)
-    max_steps = 30
+def _st_accum(st: _LoopState, elapsed_ms: int, in_tok: int, out_tok: int,
+              ev_c: int, ev_ms: int) -> None:
+    """Accumulate one LLM call's token/timing stats into _LoopState."""  # FIX-195
+    st.llm_call_count += 1
+    st.total_in_tok += in_tok
+    st.total_out_tok += out_tok
+    st.total_elapsed_ms += elapsed_ms
+    st.total_eval_count += ev_c
+    st.total_eval_ms += ev_ms
 
-    task_start = time.time()
-    listed_dirs: set[str] = set()
-    total_in_tok = 0
-    total_out_tok = 0
-    total_elapsed_ms = 0
-    total_eval_count = 0  # Ollama-native generated tokens (0 for other backends)
-    total_eval_ms = 0     # Ollama-native generation time ms (0 for other backends)
-    step_count = 0        # number of main-loop iterations started
-    llm_call_count = 0    # total LLM API calls made (incl. retries and stall hints)
 
-    # Adaptive stall detection state
-    _action_fingerprints: deque = deque(maxlen=6)
-    _steps_since_write: int = 0
-    _error_counts: Counter = Counter()
-    _stall_hint_active: bool = False
-
-    # Accumulated step facts for rolling state digest in _compact_log
-    _step_facts: list[_StepFact] = []
-
-    # Unit 8: per-type loop state
-    _inbox_read_count: int = 0  # TASK_INBOX: files read from inbox/ directory
+def _run_pre_route(
+    vm: PcmRuntimeClientSync,
+    task_text: str,
+    task_type: str,
+    pre: PrephaseResult,
+    model: str,
+    st: _LoopState,
+) -> bool:
+    """Pre-loop phase: injection detection + semantic routing.  # FIX-195
+    Uses module-level openrouter_client / ollama_client (imported from dispatch).
+    Returns True if early exit triggered (DENY/CLARIFY/UNSUPPORTED), False to continue."""
 
     # Fast-path injection detection (regex compiled once per process, not per task)
-    if _INJECTION_RE.search(_task_text):
+    if _INJECTION_RE.search(task_text):
         print(f"{CLI_RED}[security] Fast-path injection regex triggered — DENY_SECURITY{CLI_CLR}")
         try:
             vm.answer(AnswerRequest(
@@ -991,11 +1020,7 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
             ))
         except Exception:
             pass
-        return {
-            "input_tokens": 0, "output_tokens": 0, "llm_elapsed_ms": 0,
-            "ollama_eval_count": 0, "ollama_eval_ms": 0,
-            "step_count": 0, "llm_call_count": 0,
-        }
+        return True
 
     # Semantic routing via LLM — handles ambiguous injection + over-permissive cases
     # FIX-171: lookup tasks always EXECUTE — they only query vault files, never external services;
@@ -1029,10 +1054,10 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
                 "route EXECUTE. CLARIFY only if body is completely absent from the task.\n"
                 "  UNSUPPORTED — requires external calendar, CRM, or outbound URL not in the vault"
             )},
-            {"role": "user", "content": f"Task: {_task_text[:800]}{_vault_ctx}{_type_ctx}"},
+            {"role": "user", "content": f"Task: {task_text[:800]}{_vault_ctx}{_type_ctx}"},
         ]
         # FIX-188: check module-level cache before calling LLM (audit 2.3)
-        _task_key = hashlib.sha256(_task_text[:800].encode()).hexdigest()
+        _task_key = hashlib.sha256(task_text[:800].encode()).hexdigest()
         _should_cache = False
         if _task_key in _ROUTE_CACHE:
             _cv, _cr, _cs = _ROUTE_CACHE[_task_key]
@@ -1049,9 +1074,9 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
                 )
                 _rr_text = (_rr_resp.choices[0].message.content or "{}").strip()
                 _rr_text = _THINK_RE.sub("", _rr_text).strip()
-                total_in_tok += getattr(getattr(_rr_resp, "usage", None), "prompt_tokens", 0)
-                total_out_tok += getattr(getattr(_rr_resp, "usage", None), "completion_tokens", 0)
-                llm_call_count += 1
+                st.total_in_tok += getattr(getattr(_rr_resp, "usage", None), "prompt_tokens", 0)
+                st.total_out_tok += getattr(getattr(_rr_resp, "usage", None), "completion_tokens", 0)
+                st.llm_call_count += 1
                 _route_raw = json.loads(_rr_text)
                 _should_cache = True
             except Exception as _re:
@@ -1088,291 +1113,308 @@ def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
                     ))
                 except Exception:
                     pass
-                return {
-                    "input_tokens": total_in_tok, "output_tokens": total_out_tok,
-                    "llm_elapsed_ms": total_elapsed_ms,
-                    "ollama_eval_count": total_eval_count, "ollama_eval_ms": total_eval_ms,
-                    "step_count": 0, "llm_call_count": llm_call_count,
-                }
+                return True
 
-    # Search expansion counter — max 2 retries per unique pattern
-    _search_retry_counts: dict[str, int] = {}
+    return False
 
-    # Server-authoritative done_operations ledger
-    # Survives log compaction — injected into preserve_prefix and updated in-place
-    _done_ops: list[str] = []
-    _ledger_msg: dict | None = None
 
-    for i in range(max_steps):
-        # --- Task timeout check ---
-        elapsed_task = time.time() - task_start
-        if elapsed_task > TASK_TIMEOUT_S:
-            print(f"{CLI_RED}[TIMEOUT] Task exceeded {TASK_TIMEOUT_S}s ({elapsed_task:.0f}s elapsed), stopping{CLI_CLR}")
-            try:
-                vm.answer(AnswerRequest(
-                    message=f"Agent timeout: task exceeded {TASK_TIMEOUT_S}s time limit",
-                    outcome=Outcome.OUTCOME_ERR_INTERNAL,
-                    refs=[],
-                ))
-            except Exception:
-                pass
-            break
+def _run_step(
+    i: int,
+    vm: PcmRuntimeClientSync,
+    model: str,
+    cfg: dict,
+    task_type: str,
+    coder_model: str,
+    coder_cfg: "dict | None",
+    max_tokens: int,
+    task_start: float,
+    st: _LoopState,
+) -> bool:
+    """Execute one agent loop step.  # FIX-195
+    Returns True if task is complete (report_completion received or fatal error)."""
 
-        step_count += 1
-        step = f"step_{i + 1}"
-        print(f"\n{CLI_BLUE}--- {step} ---{CLI_CLR} ", end="")
+    # --- Task timeout check ---
+    elapsed_task = time.time() - task_start
+    if elapsed_task > TASK_TIMEOUT_S:
+        print(f"{CLI_RED}[TIMEOUT] Task exceeded {TASK_TIMEOUT_S}s ({elapsed_task:.0f}s elapsed), stopping{CLI_CLR}")
+        try:
+            vm.answer(AnswerRequest(
+                message=f"Agent timeout: task exceeded {TASK_TIMEOUT_S}s time limit",
+                outcome=Outcome.OUTCOME_ERR_INTERNAL,
+                refs=[],
+            ))
+        except Exception:
+            pass
+        return True
 
-        # Compact log to prevent token overflow; pass accumulated step facts for digest-based compaction
-        log = _compact_log(log, max_tool_pairs=5, preserve_prefix=preserve_prefix,
-                           step_facts=_step_facts)
+    st.step_count += 1
+    step = f"step_{i + 1}"
+    print(f"\n{CLI_BLUE}--- {step} ---{CLI_CLR} ", end="")
 
-        # --- LLM call ---
-        job, elapsed_ms, in_tok, out_tok, _, ev_c, ev_ms = _call_llm(log, model, max_tokens, cfg)
-        llm_call_count += 1
-        total_in_tok += in_tok
-        total_out_tok += out_tok
-        total_elapsed_ms += elapsed_ms
-        total_eval_count += ev_c
-        total_eval_ms += ev_ms
+    # Compact log to prevent token overflow; pass accumulated step facts for digest-based compaction
+    st.log = _compact_log(st.log, max_tool_pairs=5, preserve_prefix=st.preserve_prefix,
+                          step_facts=st.step_facts)
 
-        # JSON parse retry hint (for Ollama json_object mode)
-        if job is None and not is_claude_model(model):
-            print(f"{CLI_YELLOW}[retry] Adding JSON correction hint{CLI_CLR}")
-            log.append({"role": "user", "content": (
-                'Your previous response was invalid. Respond with EXACTLY this JSON structure '
-                '(all 5 fields required, correct types):\n'
-                '{"current_state":"<string>","plan_remaining_steps_brief":["<string>"],'
-                '"done_operations":[],"task_completed":false,"function":{"tool":"list","path":"/"}}\n'
-                'RULES: current_state=string, plan_remaining_steps_brief=array of strings, '
-                'done_operations=array of strings (confirmed WRITTEN:/DELETED: ops so far, empty [] if none), '
-                'task_completed=boolean (true/false not string), function=object with "tool" key inside.'
-            )})
-            job, elapsed_ms, in_tok, out_tok, _, ev_c, ev_ms = _call_llm(log, model, max_tokens, cfg)
-            llm_call_count += 1
-            total_in_tok += in_tok
-            total_out_tok += out_tok
-            total_elapsed_ms += elapsed_ms
-            total_eval_count += ev_c
-            total_eval_ms += ev_ms
-            log.pop()
+    # --- LLM call ---
+    job, elapsed_ms, in_tok, out_tok, _, ev_c, ev_ms = _call_llm(st.log, model, max_tokens, cfg)
+    _st_accum(st, elapsed_ms, in_tok, out_tok, ev_c, ev_ms)
 
-        if job is None:
-            print(f"{CLI_RED}No valid response, stopping{CLI_CLR}")
-            try:
-                vm.answer(AnswerRequest(
-                    message="Agent failed: unable to get valid LLM response",
-                    outcome=Outcome.OUTCOME_ERR_INTERNAL,
-                    refs=[],
-                ))
-            except Exception:
-                pass
-            break
+    # JSON parse retry hint (for Ollama json_object mode)
+    if job is None and not is_claude_model(model):
+        print(f"{CLI_YELLOW}[retry] Adding JSON correction hint{CLI_CLR}")
+        st.log.append({"role": "user", "content": (
+            'Your previous response was invalid. Respond with EXACTLY this JSON structure '
+            '(all 5 fields required, correct types):\n'
+            '{"current_state":"<string>","plan_remaining_steps_brief":["<string>"],'
+            '"done_operations":[],"task_completed":false,"function":{"tool":"list","path":"/"}}\n'
+            'RULES: current_state=string, plan_remaining_steps_brief=array of strings, '
+            'done_operations=array of strings (confirmed WRITTEN:/DELETED: ops so far, empty [] if none), '
+            'task_completed=boolean (true/false not string), function=object with "tool" key inside.'
+        )})
+        job, elapsed_ms, in_tok, out_tok, _, ev_c, ev_ms = _call_llm(st.log, model, max_tokens, cfg)
+        _st_accum(st, elapsed_ms, in_tok, out_tok, ev_c, ev_ms)
+        st.log.pop()
 
-        step_summary = job.plan_remaining_steps_brief[0] if job.plan_remaining_steps_brief else "(no steps)"
-        print(f"{step_summary} ({elapsed_ms} ms)\n  {job.function}")
+    if job is None:
+        print(f"{CLI_RED}No valid response, stopping{CLI_CLR}")
+        try:
+            vm.answer(AnswerRequest(
+                message="Agent failed: unable to get valid LLM response",
+                outcome=Outcome.OUTCOME_ERR_INTERNAL,
+                refs=[],
+            ))
+        except Exception:
+            pass
+        return True
 
-        # If model omitted done_operations, inject server-authoritative list
-        if _done_ops and not job.done_operations:
-            print(f"{CLI_YELLOW}[ledger] Injecting server-authoritative done_operations ({len(_done_ops)} ops){CLI_CLR}")
-            job = job.model_copy(update={"done_operations": list(_done_ops)})
+    step_summary = job.plan_remaining_steps_brief[0] if job.plan_remaining_steps_brief else "(no steps)"
+    print(f"{step_summary} ({elapsed_ms} ms)\n  {job.function}")
 
-        # Serialize once; reuse for fingerprint and log message
+    # If model omitted done_operations, inject server-authoritative list
+    if st.done_ops and not job.done_operations:
+        print(f"{CLI_YELLOW}[ledger] Injecting server-authoritative done_operations ({len(st.done_ops)} ops){CLI_CLR}")
+        job = job.model_copy(update={"done_operations": list(st.done_ops)})
+
+    # Serialize once; reuse for fingerprint and log message
+    action_name = job.function.__class__.__name__
+    action_args = job.function.model_dump_json()
+
+    # Update fingerprints and check for stall before logging
+    # (hint retry must use a log that doesn't yet contain this step)
+    st.action_fingerprints.append(f"{action_name}:{action_args}")
+
+    job, st.stall_hint_active, _stall_fired, _si, _so, _se, _sev_c, _sev_ms = _handle_stall_retry(
+        job, st.log, model, max_tokens, cfg,
+        st.action_fingerprints, st.steps_since_write, st.error_counts, st.step_facts,
+        st.stall_hint_active,
+    )
+    if _stall_fired:
+        _st_accum(st, _se, _si, _so, _sev_c, _sev_ms)
         action_name = job.function.__class__.__name__
         action_args = job.function.model_dump_json()
+        st.action_fingerprints[-1] = f"{action_name}:{action_args}"
 
-        # Update fingerprints and check for stall before logging
-        # (hint retry must use a log that doesn't yet contain this step)
-        _action_fingerprints.append(f"{action_name}:{action_args}")
+    # Compact function call representation in history (strip None/False/0 defaults)
+    st.log.append({
+        "role": "assistant",
+        "content": _history_action_repr(action_name, job.function),
+    })
 
-        job, _stall_hint_active, _stall_fired, _si, _so, _se, _sev_c, _sev_ms = _handle_stall_retry(
-            job, log, model, max_tokens, cfg,
-            _action_fingerprints, _steps_since_write, _error_counts, _step_facts,
-            _stall_hint_active,
-        )
-        if _stall_fired:
-            llm_call_count += 1
-            total_in_tok += _si
-            total_out_tok += _so
-            total_elapsed_ms += _se
-            total_eval_count += _sev_c
-            total_eval_ms += _sev_ms
-            action_name = job.function.__class__.__name__
-            action_args = job.function.model_dump_json()
-            _action_fingerprints[-1] = f"{action_name}:{action_args}"
+    # Auto-list parent dir before first delete from it
+    if isinstance(job.function, Req_Delete):
+        parent = str(_Path(job.function.path).parent)
+        if parent not in st.listed_dirs:
+            print(f"{CLI_YELLOW}[auto-list] Auto-listing {parent} before delete{CLI_CLR}")
+            try:
+                _lr = vm.list(ListRequest(name=parent))
+                _lr_raw = json.dumps(MessageToDict(_lr), indent=2) if _lr else "{}"
+                st.listed_dirs.add(parent)
+                st.log.append({"role": "user", "content": f"[auto-list] Directory listing of {parent} (auto):\nResult of Req_List: {_lr_raw}"})
+            except Exception as _le:
+                print(f"{CLI_RED}[auto-list] Auto-list failed: {_le}{CLI_CLR}")
 
-        # Compact function call representation in history (strip None/False/0 defaults)
-        log.append({
-            "role": "assistant",
-            "content": _history_action_repr(action_name, job.function),
+    # Track listed dirs
+    if isinstance(job.function, Req_List):
+        st.listed_dirs.add(job.function.path)
+
+    # Wildcard delete rejection
+    if isinstance(job.function, Req_Delete) and ("*" in job.function.path):
+        wc_parent = job.function.path.rstrip("/*").rstrip("/") or "/"
+        print(f"{CLI_YELLOW}[wildcard] Wildcard delete rejected: {job.function.path}{CLI_CLR}")
+        st.log.append({
+            "role": "user",
+            "content": (
+                f"ERROR: Wildcards not supported. You must delete files one by one.\n"
+                f"List '{wc_parent}' first, then delete each file individually by its exact path."
+            ),
         })
+        st.steps_since_write += 1
+        return False
 
-        # Auto-list parent dir before first delete from it
-        if isinstance(job.function, Req_Delete):
-            parent = str(_Path(job.function.path).parent)
-            if parent not in listed_dirs:
-                print(f"{CLI_YELLOW}[auto-list] Auto-listing {parent} before delete{CLI_CLR}")
-                try:
-                    _lr = vm.list(ListRequest(name=parent))
-                    _lr_raw = json.dumps(MessageToDict(_lr), indent=2) if _lr else "{}"
-                    listed_dirs.add(parent)
-                    log.append({"role": "user", "content": f"[auto-list] Directory listing of {parent} (auto):\nResult of Req_List: {_lr_raw}"})
-                except Exception as _le:
-                    print(f"{CLI_RED}[auto-list] Auto-list failed: {_le}{CLI_CLR}")
+    # Unit 8 TASK_LOOKUP: read-only guard — mutations are not allowed for lookup tasks
+    if task_type == TASK_LOOKUP and isinstance(job.function, (Req_Write, Req_Delete, Req_MkDir, Req_Move)):
+        print(f"{CLI_YELLOW}[lookup] Blocked mutation {action_name} — lookup tasks are read-only{CLI_CLR}")
+        st.log.append({"role": "user", "content":
+            "[lookup] Lookup tasks are read-only. Use report_completion to answer the question."})
+        st.steps_since_write += 1
+        return False
 
-        # Track listed dirs
-        if isinstance(job.function, Req_List):
-            listed_dirs.add(job.function.path)
+    # FIX-148: empty-path guard — model generated write/delete with path="" placeholder
+    # (happens when model outputs multi-action text with a bare NextStep schema that has empty function fields)
+    # Inject correction hint instead of dispatching, which would throw INVALID_ARGUMENT from PCM.
+    _has_empty_path = (
+        isinstance(job.function, (Req_Write, Req_Delete, Req_Move, Req_MkDir))
+        and not getattr(job.function, "path", None)
+        and not getattr(job.function, "from_name", None)
+    )
+    if _has_empty_path:
+        print(f"{CLI_YELLOW}[empty-path] {action_name} has empty path — injecting correction hint{CLI_CLR}")
+        st.log.append({
+            "role": "user",
+            "content": (
+                f"ERROR: {action_name} requires a non-empty path. "
+                "Your last response had an empty path field. "
+                "Provide the correct full path (e.g. /reminders/rem_001.json) and content."
+            ),
+        })
+        st.steps_since_write += 1
+        return False
 
-        # Wildcard delete rejection
-        if isinstance(job.function, Req_Delete) and ("*" in job.function.path):
-            wc_parent = job.function.path.rstrip("/*").rstrip("/") or "/"
-            print(f"{CLI_YELLOW}[wildcard] Wildcard delete rejected: {job.function.path}{CLI_CLR}")
-            log.append({
-                "role": "user",
-                "content": (
-                    f"ERROR: Wildcards not supported. You must delete files one by one.\n"
-                    f"List '{wc_parent}' first, then delete each file individually by its exact path."
-                ),
-            })
-            _steps_since_write += 1
-            continue
+    try:
+        result = dispatch(vm, job.function,  # FIX-163: pass coder sub-agent params
+                         coder_model=coder_model or model, coder_cfg=coder_cfg or cfg)
+        # code_eval returns a plain str; all other tools return protobuf messages
+        if isinstance(result, str):
+            txt = result
+            raw = result
+        else:
+            raw = json.dumps(MessageToDict(result), indent=2) if result else "{}"
+            txt = _format_result(result, raw)
+        if isinstance(job.function, Req_Delete) and not txt.startswith("ERROR"):
+            txt = f"DELETED: {job.function.path}"
+        elif isinstance(job.function, Req_Write) and not txt.startswith("ERROR"):
+            txt = f"WRITTEN: {job.function.path}"
+        elif isinstance(job.function, Req_MkDir) and not txt.startswith("ERROR"):
+            txt = f"CREATED DIR: {job.function.path}"
+        print(f"{CLI_GREEN}OUT{CLI_CLR}: {txt[:300]}{'...' if len(txt) > 300 else ''}")
 
-        # Unit 8 TASK_LOOKUP: read-only guard — mutations are not allowed for lookup tasks
-        if task_type == TASK_LOOKUP and isinstance(job.function, (Req_Write, Req_Delete, Req_MkDir, Req_Move)):
-            print(f"{CLI_YELLOW}[lookup] Blocked mutation {action_name} — lookup tasks are read-only{CLI_CLR}")
-            log.append({"role": "user", "content":
-                "[lookup] Lookup tasks are read-only. Use report_completion to answer the question."})
-            _steps_since_write += 1
-            continue
+        # Post-search expansion for empty contact lookups
+        if isinstance(job.function, Req_Search):
+            _maybe_expand_search(job, txt, st.search_retry_counts, st.log)
 
-        # FIX-148: empty-path guard — model generated write/delete with path="" placeholder
-        # (happens when model outputs multi-action text with a bare NextStep schema that has empty function fields)
-        # Inject correction hint instead of dispatching, which would throw INVALID_ARGUMENT from PCM.
-        _has_empty_path = (
-            isinstance(job.function, (Req_Write, Req_Delete, Req_Move, Req_MkDir))
-            and not getattr(job.function, "path", None)
-            and not getattr(job.function, "from_name", None)
-        )
-        if _has_empty_path:
-            print(f"{CLI_YELLOW}[empty-path] {action_name} has empty path — injecting correction hint{CLI_CLR}")
-            log.append({
-                "role": "user",
-                "content": (
-                    f"ERROR: {action_name} requires a non-empty path. "
-                    "Your last response had an empty path field. "
-                    "Provide the correct full path (e.g. /reminders/rem_001.json) and content."
-                ),
-            })
-            _steps_since_write += 1
-            continue
+        # Post-write JSON field verification (+ EmailOutbox schema for outbox email files)
+        if not txt.startswith("ERROR"):
+            _is_outbox = (
+                task_type == TASK_EMAIL
+                and isinstance(job.function, Req_Write)
+                and "/outbox/" in job.function.path
+                and _Path(job.function.path).stem.isdigit()  # FIX-153: skip seq.json / README — only numeric filenames are emails
+            )
+            _verify_json_write(vm, job, st.log, schema_cls=EmailOutbox if _is_outbox else None)
 
-        try:
-            result = dispatch(vm, job.function,  # FIX-163: pass coder sub-agent params
-                             coder_model=coder_model or model, coder_cfg=coder_cfg or cfg)
-            # code_eval returns a plain str; all other tools return protobuf messages
-            if isinstance(result, str):
-                txt = result
-                raw = result
-            else:
-                raw = json.dumps(MessageToDict(result), indent=2) if result else "{}"
-                txt = _format_result(result, raw)
-            if isinstance(job.function, Req_Delete) and not txt.startswith("ERROR"):
-                txt = f"DELETED: {job.function.path}"
-            elif isinstance(job.function, Req_Write) and not txt.startswith("ERROR"):
-                txt = f"WRITTEN: {job.function.path}"
-            elif isinstance(job.function, Req_MkDir) and not txt.startswith("ERROR"):
-                txt = f"CREATED DIR: {job.function.path}"
-            print(f"{CLI_GREEN}OUT{CLI_CLR}: {txt[:300]}{'...' if len(txt) > 300 else ''}")
-
-            # Post-search expansion for empty contact lookups
-            if isinstance(job.function, Req_Search):
-                _maybe_expand_search(job, txt, _search_retry_counts, log)
-
-            # Post-write JSON field verification (+ EmailOutbox schema for outbox email files)
-            if not txt.startswith("ERROR"):
-                _is_outbox = (
-                    task_type == TASK_EMAIL
-                    and isinstance(job.function, Req_Write)
-                    and "/outbox/" in job.function.path
-                    and _Path(job.function.path).stem.isdigit()  # FIX-153: skip seq.json / README — only numeric filenames are emails
-                )
-                _verify_json_write(vm, job, log, schema_cls=EmailOutbox if _is_outbox else None)
-
-            # Unit 8 TASK_INBOX: count inbox/ reads; after >1 hint to process one at a time
-            if task_type == TASK_INBOX and isinstance(job.function, Req_Read):
-                if "/inbox/" in job.function.path or job.function.path.startswith("inbox/"):
-                    _inbox_read_count += 1
-                    if _inbox_read_count > 1:
-                        _inbox_hint = (
-                            "[inbox] You have read more than one inbox message. "
-                            "Process ONE message only, then call report_completion."
-                        )
-                        print(f"{CLI_YELLOW}{_inbox_hint}{CLI_CLR}")
-                        log.append({"role": "user", "content": _inbox_hint})
-
-            # Unit 8 TASK_DISTILL: hint to update thread after writing a card file
-            if task_type == TASK_DISTILL and isinstance(job.function, Req_Write) and not txt.startswith("ERROR"):
-                if "/cards/" in job.function.path or "card" in _Path(job.function.path).name.lower():
-                    _distill_hint = (
-                        f"[distill] Card written: {job.function.path}. "
-                        "Remember to update the thread file with a link to this card."
+        # Unit 8 TASK_INBOX: count inbox/ reads; after >1 hint to process one at a time
+        if task_type == TASK_INBOX and isinstance(job.function, Req_Read):
+            if "/inbox/" in job.function.path or job.function.path.startswith("inbox/"):
+                st.inbox_read_count += 1
+                if st.inbox_read_count > 1:
+                    _inbox_hint = (
+                        "[inbox] You have read more than one inbox message. "
+                        "Process ONE message only, then call report_completion."
                     )
-                    print(f"{CLI_YELLOW}{_distill_hint}{CLI_CLR}")
-                    log.append({"role": "user", "content": _distill_hint})
+                    print(f"{CLI_YELLOW}{_inbox_hint}{CLI_CLR}")
+                    st.log.append({"role": "user", "content": _inbox_hint})
 
-            # Reset stall state on meaningful progress
-            if isinstance(job.function, (Req_Write, Req_Delete, Req_Move, Req_MkDir)):
-                _steps_since_write = 0
-                _stall_hint_active = False
-                _error_counts.clear()
-                # Update server-authoritative done_operations ledger
-                _ledger_msg = _record_done_op(job, txt, _done_ops, _ledger_msg, preserve_prefix)
-            else:
-                _steps_since_write += 1
-        except ConnectError as exc:
-            txt = f"ERROR {exc.code}: {exc.message}"
-            print(f"{CLI_RED}ERR {exc.code}: {exc.message}{CLI_CLR}")
-            # Record repeated errors for stall detection
-            _err_path = getattr(job.function, "path", getattr(job.function, "from_name", "?"))
-            _error_counts[(action_name, _err_path, exc.code.name)] += 1
-            _stall_hint_active = False  # allow stall hint on next iteration if error repeats
-            _steps_since_write += 1
-            # After NOT_FOUND on read, auto-relist parent — path may have been garbled
-            if isinstance(job.function, Req_Read) and exc.code.name == "NOT_FOUND":
-                txt += _auto_relist_parent(vm, job.function.path, "read", check_path=True)
-            # After NOT_FOUND on delete, auto-relist parent so model sees remaining files
-            if isinstance(job.function, Req_Delete) and exc.code.name == "NOT_FOUND":
-                _relist_extra = _auto_relist_parent(vm, job.function.path, "delete")
-                if _relist_extra:
-                    listed_dirs.add(str(_Path(job.function.path).parent))
-                txt += _relist_extra
+        # Unit 8 TASK_DISTILL: hint to update thread after writing a card file
+        if task_type == TASK_DISTILL and isinstance(job.function, Req_Write) and not txt.startswith("ERROR"):
+            if "/cards/" in job.function.path or "card" in _Path(job.function.path).name.lower():
+                _distill_hint = (
+                    f"[distill] Card written: {job.function.path}. "
+                    "Remember to update the thread file with a link to this card."
+                )
+                print(f"{CLI_YELLOW}{_distill_hint}{CLI_CLR}")
+                st.log.append({"role": "user", "content": _distill_hint})
 
-        if isinstance(job.function, ReportTaskCompletion):
-            status = CLI_GREEN if job.function.outcome == "OUTCOME_OK" else CLI_YELLOW
-            print(f"{status}agent {job.function.outcome}{CLI_CLR}. Summary:")
-            for item in job.function.completed_steps_laconic:
-                print(f"- {item}")
-            print(f"\n{CLI_BLUE}AGENT SUMMARY: {job.function.message}{CLI_CLR}")
-            if job.function.grounding_refs:
-                for ref in job.function.grounding_refs:
-                    print(f"- {CLI_BLUE}{ref}{CLI_CLR}")
+        # Reset stall state on meaningful progress
+        if isinstance(job.function, (Req_Write, Req_Delete, Req_Move, Req_MkDir)):
+            st.steps_since_write = 0
+            st.stall_hint_active = False
+            st.error_counts.clear()
+            # Update server-authoritative done_operations ledger
+            st.ledger_msg = _record_done_op(job, txt, st.done_ops, st.ledger_msg, st.preserve_prefix)
+        else:
+            st.steps_since_write += 1
+    except ConnectError as exc:
+        txt = f"ERROR {exc.code}: {exc.message}"
+        print(f"{CLI_RED}ERR {exc.code}: {exc.message}{CLI_CLR}")
+        # Record repeated errors for stall detection
+        _err_path = getattr(job.function, "path", getattr(job.function, "from_name", "?"))
+        st.error_counts[(action_name, _err_path, exc.code.name)] += 1
+        st.stall_hint_active = False  # allow stall hint on next iteration if error repeats
+        st.steps_since_write += 1
+        # After NOT_FOUND on read, auto-relist parent — path may have been garbled
+        if isinstance(job.function, Req_Read) and exc.code.name == "NOT_FOUND":
+            txt += _auto_relist_parent(vm, job.function.path, "read", check_path=True)
+        # After NOT_FOUND on delete, auto-relist parent so model sees remaining files
+        if isinstance(job.function, Req_Delete) and exc.code.name == "NOT_FOUND":
+            _relist_extra = _auto_relist_parent(vm, job.function.path, "delete")
+            if _relist_extra:
+                st.listed_dirs.add(str(_Path(job.function.path).parent))
+            txt += _relist_extra
+
+    if isinstance(job.function, ReportTaskCompletion):
+        status = CLI_GREEN if job.function.outcome == "OUTCOME_OK" else CLI_YELLOW
+        print(f"{status}agent {job.function.outcome}{CLI_CLR}. Summary:")
+        for item in job.function.completed_steps_laconic:
+            print(f"- {item}")
+        print(f"\n{CLI_BLUE}AGENT SUMMARY: {job.function.message}{CLI_CLR}")
+        if job.function.grounding_refs:
+            for ref in job.function.grounding_refs:
+                print(f"- {CLI_BLUE}{ref}{CLI_CLR}")
+        return True
+
+    # Extract step fact before compacting (uses raw txt, not history-compact version)
+    _fact = _extract_fact(action_name, job.function, txt)
+    if _fact is not None:
+        st.step_facts.append(_fact)
+
+    # Compact tool result for log history (model saw full output already)
+    _history_txt = _compact_tool_result(action_name, txt)
+    st.log.append({"role": "user", "content": f"Result of {action_name}: {_history_txt}"})
+
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Main agent loop
+# ---------------------------------------------------------------------------
+
+def run_loop(vm: PcmRuntimeClientSync, model: str, _task_text: str,
+             pre: PrephaseResult, cfg: dict, task_type: str = "default",
+             coder_model: str = "", coder_cfg: "dict | None" = None) -> dict:  # FIX-163
+    """Run main agent loop. Returns token usage stats dict.
+
+    task_type: classifier result; drives per-type loop strategies (Unit 8):
+      - lookup: read-only guard — blocks write/delete/move/mkdir
+      - inbox: hints after >1 inbox/ files read to process one message at a time
+      - email: post-write outbox verify via EmailOutbox schema when available
+      - distill: hint to update thread file after writing a card
+    coder_model/coder_cfg: FIX-163 — passed to dispatch() for Req_CodeEval sub-agent calls.
+    """
+    # FIX-195: run_loop() is now a thin orchestrator — logic lives in:
+    #   _run_pre_route() — injection detection + semantic routing (pre-loop)
+    #   _run_step()      — one iteration of the 30-step loop
+    st = _LoopState(log=pre.log, preserve_prefix=pre.preserve_prefix)
+    task_start = time.time()
+    max_tokens = cfg.get("max_completion_tokens", 16384)
+
+    # Pre-loop phase: injection detection + semantic routing
+    if _run_pre_route(vm, _task_text, task_type, pre, model, st):
+        return _st_to_result(st)
+
+    # Main loop — up to 30 steps
+    for i in range(30):
+        if _run_step(i, vm, model, cfg, task_type, coder_model, coder_cfg,
+                     max_tokens, task_start, st):
             break
 
-        # Extract step fact before compacting (uses raw txt, not history-compact version)
-        _fact = _extract_fact(action_name, job.function, txt)
-        if _fact is not None:
-            _step_facts.append(_fact)
-
-        # Compact tool result for log history (model saw full output already)
-        _history_txt = _compact_tool_result(action_name, txt)
-        log.append({"role": "user", "content": f"Result of {action_name}: {_history_txt}"})
-
-    return {
-        "input_tokens": total_in_tok,
-        "output_tokens": total_out_tok,
-        "llm_elapsed_ms": total_elapsed_ms,
-        "ollama_eval_count": total_eval_count,   # 0 for non-Ollama
-        "ollama_eval_ms": total_eval_ms,          # 0 for non-Ollama
-        "step_count": step_count,
-        "llm_call_count": llm_call_count,
-    }
+    return _st_to_result(st)
