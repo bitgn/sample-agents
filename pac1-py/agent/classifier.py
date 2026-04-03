@@ -168,8 +168,10 @@ _CLASSIFY_SYSTEM = (
     "default = everything else (read, write, create, capture, delete, move, standard tasks)"
 )
 
+# FIX-198: TASK_CODER removed — since FIX-163 coder is a sub-agent, not a valid task route.
+# If LLM returns "coder", it falls through to regex fallback (returns default).
 _VALID_TYPES = frozenset({TASK_THINK, TASK_LONG_CONTEXT, TASK_DEFAULT,
-                          TASK_EMAIL, TASK_LOOKUP, TASK_INBOX, TASK_DISTILL, TASK_CODER})
+                          TASK_EMAIL, TASK_LOOKUP, TASK_INBOX, TASK_DISTILL})
 
 # Ordered keyword → task_type table for plain-text LLM response fallback.
 # Most-specific types first; longContext listed with all common spellings.
@@ -177,7 +179,7 @@ _PLAINTEXT_FALLBACK: list[tuple[tuple[str, ...], str]] = [
     (("longcontext", "long_context", "long context"), TASK_LONG_CONTEXT),
     (("inbox",),   TASK_INBOX),
     (("email",),   TASK_EMAIL),
-    (("coder",),   TASK_CODER),
+    # FIX-198: ("coder",) removed — coder is a sub-agent (FIX-163), not a valid task route
     (("lookup",),  TASK_LOOKUP),
     (("distill",), TASK_DISTILL),
     (("think",),   TASK_THINK),

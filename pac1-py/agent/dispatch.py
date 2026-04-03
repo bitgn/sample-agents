@@ -344,6 +344,13 @@ def call_llm_raw(
     max_retries controls retry count per tier (0 = 1 attempt only).
     plain_text=True skips response_format constraints (use for code generation)."""
 
+    # FIX-197: extract seed from ollama_options for cross-tier determinism.
+    # Ollama tier passes it via extra_body.options; OpenRouter accepts it as a top-level param.
+    _seed = None
+    _opts_for_seed = cfg.get("ollama_options")
+    if isinstance(_opts_for_seed, dict) and "seed" in _opts_for_seed:
+        _seed = _opts_for_seed["seed"]
+
     msgs = [
         {"role": "system", "content": system},
         {"role": "user", "content": user_msg},
@@ -363,6 +370,7 @@ def call_llm_raw(
                 _ant_temp = cfg.get("temperature")  # FIX-187: pass temperature for non-thinking calls
                 if _ant_temp is not None:
                     _create_kw["temperature"] = _ant_temp
+                # FIX-197: Anthropic SDK has no seed param; temperature from cfg (FIX-187) is the best determinism lever
                 resp = anthropic_client.messages.create(**_create_kw)
                 # Iterate blocks — take first type="text" (skip thinking blocks)
                 for block in resp.content:
@@ -390,6 +398,8 @@ def call_llm_raw(
                 create_kwargs: dict = dict(model=model, max_tokens=max_tokens, messages=msgs)
                 if rf is not None:
                     create_kwargs["response_format"] = rf
+                if _seed is not None:  # FIX-197: forward seed to OpenRouter for deterministic sampling
+                    create_kwargs["seed"] = _seed
                 resp = openrouter_client.chat.completions.create(**create_kwargs)
                 _content = resp.choices[0].message.content or ""
                 if _LOG_LEVEL == "DEBUG":
