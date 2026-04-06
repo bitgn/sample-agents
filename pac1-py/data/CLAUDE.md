@@ -68,3 +68,11 @@ Count unique variants per task:
 ```bash
 for d in tasks/*/; do echo "$(ls "$d" | wc -l | tr -d ' ') $(basename $d)"; done | sort -rn
 ```
+
+## Interpreting variant counts
+
+Data was collected with **5 repetitions**. Interpret snapshot counts per task as:
+
+- **1 file** — no entropy detected; the environment is deterministic for this task
+- **2–4 files** — that many distinct variants exist (entropy is bounded)
+- **5 files** — at least 5 variants exist, possibly more; the true upper bound is unknown
