@@ -5,12 +5,14 @@ Stores traces in a local SQLite database at data/mlflow.db via MLflow's
 SQL-based tracking. OpenAI calls are auto-traced by MLflow's built-in
 OpenAI autologging.
 
-Full agent runs (make run) are stored under the "full-runs" experiment.
-Debug / single-task runs are stored under the "debug-runs" experiment so
-full-run datasets stay clean for analysis.
+Each new invocation creates a fresh timestamped experiment so traces stay
+grouped by run session. Full agent runs use names like
+"2026-04-06-14-32-full-run". Debug / single-task runs use names like
+"2026-04-06-14-32-debug-run".
 """
 
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 
 import mlflow
@@ -24,22 +26,26 @@ MLFLOW_TRACKING_URI = f"sqlite:///{MLFLOW_DB}"
 _initialized = False
 
 
+def _experiment_name(*, debug: bool) -> str:
+    timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M")
+    run_kind = "debug-run" if debug else "full-run"
+    return f"{timestamp}-{run_kind}"
+
+
 def init_tracing(*, debug: bool = False) -> None:
     """
     Configure MLflow with a SQLite tracking store and enable OpenAI autologging.
 
     Args:
-        debug: If True, traces go to the "debug-runs" experiment;
-               otherwise they go to "full-runs".
+        debug: If True, traces go to a timestamped debug-run experiment;
+               otherwise they go to a timestamped full-run experiment.
     """
     global _initialized
     if _initialized:
         return
 
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-
-    experiment_name = "debug-runs" if debug else "full-runs"
-    mlflow.set_experiment(experiment_name)
+    mlflow.set_experiment(_experiment_name(debug=debug))
 
     mlflow.openai.autolog()
 
