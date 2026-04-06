@@ -24,3 +24,10 @@ Useful environment overrides:
 - `BENCHMARK_HOST` defaults to `https://api.bitgn.com`
 - `BENCHMARK_ID` defaults to `bitgn/pac1-dev`
 - `MODEL_ID` defaults to `gpt-4.1-2025-04-14`
+
+MLflow cost tracing:
+
+- Token usage and USD cost are logged into each task run.
+- Rates are loaded from `model_prices.json`.
+- Snapshot model IDs such as `gpt-4.1-2025-04-14` fall back to the base alias `gpt-4.1`.
+- If you use other models, add them to that JSON file with `input_cost_per_million`, `cached_input_cost_per_million`, and `output_cost_per_million`.

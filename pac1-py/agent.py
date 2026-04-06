@@ -25,6 +25,7 @@ from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from connectrpc.errors import ConnectError
+from tracing import record_llm_metadata, record_llm_totals, record_llm_usage
 
 
 
@@ -312,6 +313,15 @@ def dispatch(vm: PcmRuntimeClientSync, cmd: BaseModel):
 def run_agent(model: str, harness_url: str, task_text: str) -> None:
     client = OpenAI()
     vm = PcmRuntimeClientSync(harness_url)
+    llm_totals = {
+        "prompt_tokens": 0.0,
+        "completion_tokens": 0.0,
+        "total_tokens": 0.0,
+        "cached_prompt_tokens": 0.0,
+        "input_cost_usd": 0.0,
+        "output_cost_usd": 0.0,
+        "cost_usd": 0.0,
+    }
     log = [
         {"role": "system", "content": system_prompt},
     ]
@@ -342,10 +352,25 @@ def run_agent(model: str, harness_url: str, task_text: str) -> None:
             messages=log,
             max_completion_tokens=16384,
         )
+        usage_summary = record_llm_usage(model, resp.usage, step=i + 1)
+        for key in llm_totals:
+            llm_totals[key] += usage_summary.get(key, 0.0)
+        record_llm_totals(llm_totals)
+        record_llm_metadata(model, llm_totals)
         elapsed_ms = int((time.time() - started) * 1000)
         job = resp.choices[0].message.parsed
 
         print(job.plan_remaining_steps_brief[0], f"({elapsed_ms} ms)\n  {job.function}")
+        print(
+            "  "
+            f"{CLI_BLUE}LLM{CLI_CLR}: "
+            f"prompt={int(usage_summary['prompt_tokens'])} "
+            f"completion={int(usage_summary['completion_tokens'])} "
+            f"total={int(usage_summary['total_tokens'])} "
+            f"cached={int(usage_summary['cached_prompt_tokens'])} "
+            f"cost=${usage_summary['cost_usd']:.6f} "
+            f"cum=${llm_totals['cost_usd']:.6f}"
+        )
 
         log.append(
             {
