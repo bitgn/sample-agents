@@ -7,7 +7,7 @@ from bitgn.harness_pb2 import EndTrialRequest, EvalPolicy, GetBenchmarkRequest, 
 from connectrpc.errors import ConnectError
 
 from agent import run_agent
-from tracing import init_tracing, trace_run, trace_task, record_task_score
+from tracing import init_tracing, trace_run, trace_task, record_task_score, record_run_llm_totals
 
 load_dotenv()
 
@@ -28,6 +28,15 @@ def main() -> None:
     init_tracing(debug=is_debug)
 
     scores = []
+    run_llm_totals = {
+        "prompt_tokens": 0.0,
+        "completion_tokens": 0.0,
+        "total_tokens": 0.0,
+        "cached_prompt_tokens": 0.0,
+        "input_cost_usd": 0.0,
+        "output_cost_usd": 0.0,
+        "cost_usd": 0.0,
+    }
     try:
         client = HarnessServiceClientSync(BITGN_URL)
         print("Connecting to BitGN", client.status(StatusRequest()))
@@ -57,12 +66,17 @@ def main() -> None:
                 print(f"{CLI_BLUE}{trial.instruction}{CLI_CLR}\n{'-' * 80}")
 
                 with trace_task(task.task_id, trial.instruction) as task_run:
+                    task_llm_totals = None
                     try:
-                        run_agent(MODEL_ID, trial.harness_url, trial.instruction)
+                        task_llm_totals = run_agent(MODEL_ID, trial.harness_url, trial.instruction)
                     except Exception as exc:
                         import mlflow
                         mlflow.log_param("task_error", str(exc)[:250])
                         print(exc)
+                    finally:
+                        if task_llm_totals is not None:
+                            for key in run_llm_totals:
+                                run_llm_totals[key] += task_llm_totals.get(key, 0.0)
 
                     result = client.end_trial(EndTrialRequest(trial_id=trial.trial_id))
                     if result.score >= 0:
@@ -71,6 +85,8 @@ def main() -> None:
                         style = CLI_GREEN if result.score == 1 else CLI_RED
                         explain = textwrap.indent("\n".join(result.score_detail), "  ")
                         print(f"\n{style}Score: {result.score:0.2f}\n{explain}\n{CLI_CLR}")
+
+            record_run_llm_totals(MODEL_ID, run_llm_totals)
 
     except ConnectError as exc:
         print(f"{exc.code}: {exc.message}")
@@ -84,6 +100,15 @@ def main() -> None:
 
         total = sum(score for _, score in scores) / len(scores) * 100.0
         print(f"FINAL: {total:0.2f}%")
+
+    print(
+        "FULL RUN LLM:"
+        f" prompt={int(run_llm_totals['prompt_tokens'])}"
+        f" completion={int(run_llm_totals['completion_tokens'])}"
+        f" total={int(run_llm_totals['total_tokens'])}"
+        f" cached={int(run_llm_totals['cached_prompt_tokens'])}"
+        f" cost=${run_llm_totals['cost_usd']:.6f}"
+    )
 
 
 if __name__ == "__main__":

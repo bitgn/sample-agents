@@ -1,0 +1,41 @@
+{
+  "gpt-4.1-2025-04-14": {
+    "input_cost_per_million": 2.0,
+    "output_cost_per_million": 8.0
+  },
+  "gpt-4.1": {
+    "input_cost_per_million": 2.0,
+    "cached_input_cost_per_million": 0.5,
+    "output_cost_per_million": 8.0
+  },
+  "gpt-5.4": {
+    "input_cost_per_million": 2.5,
+    "output_cost_per_million": 15.0
+  },
+  "gpt-5.4-mini": {
+    "input_cost_per_million": 0.75,
+    "output_cost_per_million": 4.5
+  },
+  "gpt-5.4-nano": {
+    "input_cost_per_million": 0.2,
+    "output_cost_per_million": 1.25
+  },
+  "gpt-5-mini": {
+    "input_cost_per_million": 0.25,
+    "output_cost_per_million": 2.0
+  },
+  "gpt-5-nano": {
+    "input_cost_per_million": 0.05,
+    "output_cost_per_million": 0.4
+  },
+  "gpt-4.1-mini": {
+    "input_cost_per_million": 0.4,
+    "cached_input_cost_per_million": 0.1,
+    "output_cost_per_million": 1.6
+  },
+  "gpt-4.1-nano": {
+    "input_cost_per_million": 0.1,
+    "cached_input_cost_per_million": 0.025,
+    "output_cost_per_million": 0.4
+  }
+}

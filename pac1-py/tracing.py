@@ -224,6 +224,38 @@ def record_llm_metadata(model_id: str, totals: dict[str, float]) -> None:
     )
 
 
+def record_run_llm_totals(model_id: str, totals: dict[str, float]) -> None:
+    """Log full-run cumulative LLM totals on the parent run."""
+    for metric_name, value in (
+        ("run_llm_prompt_tokens_total", totals["prompt_tokens"]),
+        ("run_llm_completion_tokens_total", totals["completion_tokens"]),
+        ("run_llm_total_tokens_total", totals["total_tokens"]),
+        ("run_llm_cached_prompt_tokens_total", totals["cached_prompt_tokens"]),
+        ("run_llm_input_cost_usd_total", totals["input_cost_usd"]),
+        ("run_llm_output_cost_usd_total", totals["output_cost_usd"]),
+        ("run_llm_cost_usd_total", totals["cost_usd"]),
+    ):
+        mlflow.log_metric(metric_name, value)
+
+    resolved = _resolve_model_pricing_entry(model_id)
+    priced_model = resolved[0] if resolved is not None else ""
+    mlflow.set_tags(
+        {
+            "run_llm_model_id": model_id,
+            "run_llm_pricing_model": priced_model,
+            "run_llm_pricing_source": MODEL_PRICES_PATH.name,
+            "run_llm_cost_traced": str(bool(priced_model)).lower(),
+            "run_llm_prompt_tokens_total": str(int(totals["prompt_tokens"])),
+            "run_llm_completion_tokens_total": str(int(totals["completion_tokens"])),
+            "run_llm_total_tokens_total": str(int(totals["total_tokens"])),
+            "run_llm_cached_prompt_tokens_total": str(int(totals["cached_prompt_tokens"])),
+            "run_llm_input_cost_usd_total": f"{totals['input_cost_usd']:.10f}",
+            "run_llm_output_cost_usd_total": f"{totals['output_cost_usd']:.10f}",
+            "run_llm_cost_usd_total": f"{totals['cost_usd']:.10f}",
+        }
+    )
+
+
 @contextmanager
 def trace_run(*, model_id: str, benchmark_id: str, task_count: int, debug: bool):
     """Top-level MLflow run wrapping an entire agent run."""

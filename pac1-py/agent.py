@@ -310,7 +310,7 @@ def dispatch(vm: PcmRuntimeClientSync, cmd: BaseModel):
     raise ValueError(f"Unknown command: {cmd}")
 
 
-def run_agent(model: str, harness_url: str, task_text: str) -> None:
+def run_agent(model: str, harness_url: str, task_text: str) -> dict[str, float]:
     client = OpenAI()
     vm = PcmRuntimeClientSync(harness_url)
     llm_totals = {
@@ -409,3 +409,5 @@ def run_agent(model: str, harness_url: str, task_text: str) -> None:
             break
 
         log.append({"role": "tool", "content": txt, "tool_call_id": step})
+
+    return llm_totals
