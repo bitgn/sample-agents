@@ -15,17 +15,17 @@ task:
 
 # Collect one snapshot pass over all tasks (or a subset via TASKS='t01 t02')
 collect:
-	uv run python collect_tasks.py $(TASKS)
+	uv run python scripts/collect_tasks.py $(TASKS)
 
 # Collect multiple passes to capture entropy variants; defaults to 10
 # usage: make collect-runs RUNS=20
 collect-runs:
-	uv run python collect_tasks.py --runs $(or $(RUNS),10) $(TASKS)
+	uv run python scripts/collect_tasks.py --runs $(or $(RUNS),10) $(TASKS)
 
 # Quick debug: one pass over only the first N tasks (default 2)
 # usage: make collect-debug N=3
 collect-debug:
-	uv run python collect_tasks.py --limit $(or $(N),2)
+	uv run python scripts/collect_tasks.py --limit $(or $(N),2)
 
 # Launch MLflow UI to browse traces (uses SQLite store in data/mlflow.db)
 mlflow:
