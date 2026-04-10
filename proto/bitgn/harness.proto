@@ -126,6 +126,10 @@ message EndTrialRequest {
 message EndTrialResponse {
   string trial_id = 1;
   TrialState state =2;
+  // AICODE-NOTE: Keep `score_available` alongside the legacy optional scalar because raw generated
+  // SDKs in some languages expose absent optional floats as `0.0`. Public clients need a typed
+  // presence bit without forcing every caller onto protobuf reflection helpers like `HasField`.
+  bool score_available = 5;
   // score will be missing in blind benchmarks (until they are open)
   optional float score = 3;
   repeated string score_detail = 4;
@@ -147,6 +151,8 @@ message GetTrialResponse {
 
   // score will be set if evaluated
   optional float score = 6;
+  // mirrors score presence for raw generated SDKs that treat absent optional scalars as zero
+  bool score_available = 12;
 
   repeated string score_detail = 7;
 
@@ -230,6 +236,8 @@ message TrialHead {
   optional string instruction = 5;
   // will be populated after evaluation
   optional float score = 6;
+  // mirrors score presence for raw generated SDKs that treat absent optional scalars as zero
+  bool score_available = 8;
 
   // error message, if trial failed
   string error = 7;
@@ -243,6 +251,8 @@ message GetRunResponse {
   string name = 3;
   // score, if it was evaluated
   optional float score = 4;
+  // mirrors score presence for raw generated SDKs that treat absent optional scalars as zero
+  bool score_available = 9;
   TrialStats stats = 5;
   repeated TrialHead trials = 6;
 

@@ -51,13 +51,15 @@ def main() -> None:
             result = client.end_trial(EndTrialRequest(trial_id=trial.trial_id))
 
 
-            if result.score >= 0:
+            if result.score_available:
                 scores.append((t.task_id, result.score))
 
                 style = CLI_GREEN if result.score == 1 else CLI_RED
 
                 explain = textwrap.indent("\n".join(result.score_detail), "  ")
                 print(f"\n{style}Score: {result.score:0.2f}\n{explain}\n{CLI_CLR}")
+            else:
+                print(f"\n{CLI_BLUE}Score: not available{CLI_CLR}\n")
 
     except ConnectError as e:
         print(f"{e.code}: {e.message}")
