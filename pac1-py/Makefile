@@ -1,13 +1,16 @@
 # AICODE-NOTE: Keep these wrappers aligned with the README commands so the sample
 # stays trivial to run from a fresh checkout without inventing parallel workflows.
 
-.PHONY: sync run task collect collect-runs collect-debug mlflow
+.PHONY: sync run run-http-debug task collect collect-runs collect-debug mlflow
 
 sync:
 	uv sync
 
 run:
 	uv run python main.py
+
+run-http-debug:
+	DEBUG_OPENAI_HTTP=1 uv run python main.py $(TASKS)
 
 task:
 	@if [ -z "$(TASKS)" ]; then echo "usage: make task TASKS='t01 t03'"; exit 1; fi
