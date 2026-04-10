@@ -5,7 +5,7 @@ import "google/protobuf/struct.proto";
 // Harness API - provides control-plane access to the BitGN Platform and its per-trial agent runtimes.
 package bitgn.harness;
 
-option go_package = "bitgn.com/harness/v2/api/buf;buf";
+option go_package = "bitgn.com/harness/v2/api/harness;harness";
 
 message StatusRequest {}
 
@@ -22,6 +22,8 @@ enum EvalPolicy {
   EVAL_POLICY_BLIND = 1;
   // in Open mode we execute evaluations at the end of the trial, also hints are visible
   EVAL_POLICY_OPEN = 2;
+  // private runs, not part of leaderboards and can't be scored
+  EVAL_POLICY_PRIVATE = 3;
 }
 
 // Pulls information about current benchmark, including task samples. Id is in format org/bench
@@ -195,6 +197,7 @@ message LogLine {
 message StartRunRequest {
   string benchmark_id = 1;
   string name = 2;
+  // get BitGN Api Key in your profile https://bitgn.com/me
   string api_key = 3;
 }
 
@@ -233,16 +236,6 @@ message TrialHead {
 
 }
 
-enum RunKind {
-  RUN_KIND_UNSPECIFIED = 0;
-  // Runs that were done against blind benchmarks
-  RUN_KIND_BLIND = 1;
-  // run was done when Benchmark was open, agent had access to scores and feedback
-  RUN_KIND_OPEN = 2;
-  // private runs, not part of leaderboards and can't be scored
-  RUN_KIND_PRIVATE = 3;
-}
-
 message GetRunResponse {
   string run_id = 1;
   string benchmark_id = 2;
@@ -254,7 +247,7 @@ message GetRunResponse {
   repeated TrialHead trials = 6;
 
   RunState state = 7;
-  RunKind kind = 8;
+  EvalPolicy policy = 8;
 }
 
 
