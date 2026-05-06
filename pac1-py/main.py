@@ -9,7 +9,7 @@ from agent import run_agent
 
 BITGN_URL = os.getenv("BITGN_HOST") or "https://api.bitgn.com"
 BITGN_API_KEY = os.getenv("BITGN_API_KEY") or ""
-BENCH_ID = os.getenv("BENCH_ID") or "bitgn/pac1-dev"
+BENCH_ID = os.getenv("BENCH_ID") or "bitgn/pac1-prod"
 MODEL_ID = os.getenv("MODEL_ID") or "gpt-4.1-2025-04-14"
 
 CLI_RED = "\x1B[31m"

@@ -163,6 +163,12 @@ message GetTrialResponse {
   int64 next_cursor = 10;
   // will be set if associated with trial run
   string run_id = 11;
+  // Trial wall time in seconds based on persisted trial lifecycle timestamps.
+  float duration_sec = 13;
+  // Terminal summary counters mirrored from persisted trial metadata when available.
+  int64 api_calls = 14;
+  int64 api_errors = 15;
+  int64 event_count = 16;
 }
 
 enum LogKind {
@@ -241,6 +247,12 @@ message TrialHead {
 
   // error message, if trial failed
   string error = 7;
+  // Trial wall time in seconds based on persisted trial lifecycle timestamps.
+  float duration_sec = 9;
+  // Terminal summary counters mirrored from persisted trial metadata when available.
+  int64 api_calls = 10;
+  int64 api_errors = 11;
+  int64 event_count = 12;
 
 }
 

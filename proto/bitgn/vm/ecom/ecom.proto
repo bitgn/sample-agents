@@ -1,0 +1,216 @@
+syntax = "proto3";
+// Provides API to access the BitGN ECOM agent runtime for one trial.
+package bitgn.vm.ecom;
+
+option go_package = "bitgn.com/harness/v2/modules/ecom/internal/buf;ecombuf";
+
+// AICODE-NOTE: ECOM starts in its own `bitgn/vm/ecom/` folder so it avoids the
+// legacy flat `bitgn/vm/*.proto` ABI while keeping the public Python import path
+// simple (`bitgn.vm.ecom.ecom_pb2`) for the new runtime.
+
+enum NodeKind {
+  NODE_KIND_UNSPECIFIED = 0;
+  NODE_KIND_FILE = 1;
+  NODE_KIND_DIR = 2;
+}
+
+message ContextRequest {}
+
+message ContextResponse {
+  int64 unix_time = 1;
+  // RFC3339 UTC timestamp.
+  string time = 2;
+}
+
+message ReadRequest {
+  string path = 1;
+  // Prefix returned lines the same way as `cat --number`, using source file
+  // line numbers when combined with line slicing.
+  bool number = 2;
+  // 1-based inclusive start line, like `sed -n 'start,endp'`. Zero means
+  // "from the first line".
+  int32 start_line = 3;
+  // 1-based inclusive end line. Zero means "through the last line".
+  int32 end_line = 4;
+}
+
+message ReadResponse {
+  string path = 1;
+  string content_type = 2;
+  string content = 3;
+  // SHA-256 of the full rendered file content, not only the returned range.
+  string sha256 = 4;
+  bool truncated = 5;
+}
+
+message ListRequest {
+  string path = 1;
+}
+
+message ListResponse {
+  message Entry {
+    string name = 1;
+    string path = 2;
+    NodeKind kind = 3;
+    string content_type = 4;
+  }
+
+  string path = 1;
+  repeated Entry entries = 2;
+}
+
+message TreeRequest {
+  // May point to either a folder or a file. Empty means the ecommerce OS root.
+  string root = 1;
+  // Maximum traversal level from `root`, matching `tree -L`. Zero means
+  // unlimited recursion.
+  int32 level = 2;
+}
+
+message TreeResponse {
+  message Entry {
+    string name = 1;
+    NodeKind kind = 2;
+    string content_type = 3;
+    repeated Entry children = 4;
+  }
+
+  Entry root = 1;
+  bool truncated = 2;
+}
+
+message FindRequest {
+  string root = 1;
+  string name = 2;
+  // NODE_KIND_UNSPECIFIED means all entries. Generated procfs-style nodes are
+  // still ordinary files or directories for this filter.
+  NodeKind kind = 3;
+  int32 limit = 4;
+}
+
+message FindResponse {
+  repeated string paths = 1;
+  bool truncated = 2;
+}
+
+message SearchRequest {
+  // Search root. Empty means the ecommerce OS root.
+  string root = 1;
+  // Regular expression pattern.
+  string pattern = 2;
+  // Maximum number of matches to return. Zero means no explicit limit.
+  int32 limit = 3;
+}
+
+message SearchResponse {
+  message Match {
+    string path = 1;
+    int32 line = 2;
+    string line_text = 3;
+  }
+
+  repeated Match matches = 1;
+  bool truncated = 2;
+}
+
+// AICODE-NOTE: Exec dispatches deterministic in-runtime tools like `/bin/sql`;
+// it must not become host process execution with ambient filesystem, network,
+// clock, or environment access.
+message ExecRequest {
+  string path = 1;
+  repeated string args = 2;
+  string stdin = 3;
+}
+
+message ExecResponse {
+  int32 exit_code = 1;
+  // MIME type for stdout, e.g. text/plain, text/csv, application/json.
+  string content_type = 2;
+  string stdout = 3;
+  string stderr = 4;
+}
+
+message WriteRequest {
+  string path = 1;
+  string content_type = 2;
+  string content = 3;
+  // Optional idempotency key for `/run/actions/*` writes. The runtime may also
+  // accept action-level idempotency inside the JSON payload; this field gives
+  // clients one consistent transport-level place to put it.
+  string idempotency_key = 4;
+  // Optional SHA-256 precondition over the current full rendered file content.
+  // Empty means no precondition.
+  string if_match_sha256 = 5;
+}
+
+enum ActionStatus {
+  ACTION_STATUS_UNSPECIFIED = 0;
+  ACTION_STATUS_NOT_ACTION = 1;
+  ACTION_STATUS_ACCEPTED = 2;
+  ACTION_STATUS_REJECTED = 3;
+}
+
+message WriteResponse {
+  string path = 1;
+  // Set for `/run/actions/*` writes when the runtime records an audit receipt.
+  string audit_path = 2;
+  string action_id = 3;
+  ActionStatus action_status = 4;
+}
+
+message DeleteRequest {
+  string path = 1;
+}
+
+message DeleteResponse {}
+
+message StatRequest {
+  string path = 1;
+}
+
+message StatResponse {
+  string path = 1;
+  NodeKind kind = 2;
+  // MIME type for the node's content, e.g. application/json, application/jsonl,
+  // text/markdown, text/csv, text/plain.
+  string content_type = 3;
+  bool writable = 4;
+  // MIME type for `write_schema`. Empty when writes do not have a fixed schema.
+  string write_schema_content_type = 5;
+  // Usually JSON Schema (`application/schema+json`) for `/run/actions/*`.
+  string write_schema = 6;
+  string description = 7;
+}
+
+enum Outcome {
+  OUTCOME_UNSPECIFIED = 0;
+  OUTCOME_OK = 1;
+  OUTCOME_DENIED_SECURITY = 2;
+  OUTCOME_NONE_CLARIFICATION = 3;
+  OUTCOME_NONE_UNSUPPORTED = 4;
+  OUTCOME_ERR_INTERNAL = 5;
+}
+
+message AnswerRequest {
+  string message = 1;
+  Outcome outcome = 2;
+  repeated string refs = 3;
+}
+
+message AnswerResponse {}
+
+// buf:lint:ignore SERVICE_SUFFIX
+// Service for the ECOM ecommerce OS runtime.
+service EcomRuntime {
+  rpc Context(ContextRequest) returns (ContextResponse);
+  rpc Read(ReadRequest) returns (ReadResponse);
+  rpc List(ListRequest) returns (ListResponse);
+  rpc Tree(TreeRequest) returns (TreeResponse);
+  rpc Find(FindRequest) returns (FindResponse);
+  rpc Search(SearchRequest) returns (SearchResponse);
+  rpc Exec(ExecRequest) returns (ExecResponse);
+  rpc Write(WriteRequest) returns (WriteResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc Stat(StatRequest) returns (StatResponse);
+  rpc Answer(AnswerRequest) returns (AnswerResponse);
+}
