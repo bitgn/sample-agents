@@ -128,19 +128,19 @@ message ExecResponse {
   string content_type = 2;
   string stdout = 3;
   string stderr = 4;
+  bool truncated = 5;
 }
 
 message WriteRequest {
   string path = 1;
-  string content_type = 2;
-  string content = 3;
+  string content = 2;
   // Optional idempotency key for `/run/actions/*` writes. The runtime may also
   // accept action-level idempotency inside the JSON payload; this field gives
   // clients one consistent transport-level place to put it.
-  string idempotency_key = 4;
+  string idempotency_key = 3;
   // Optional SHA-256 precondition over the current full rendered file content.
   // Empty means no precondition.
-  string if_match_sha256 = 5;
+  string if_match_sha256 = 4;
 }
 
 enum ActionStatus {

@@ -19,6 +19,12 @@ PAC1 is the PCM-runtime sample. It mirrors the sandbox control-plane flow, but i
 
 Source code: [PAC1 Agent (Python)](pac1-py)
 
+## ECOM1
+
+ECOM1 is the ecommerce-runtime sample. It operates against the `bitgn.vm.ecom` runtime and the `bitgn/ecom1-dev` benchmark, including file operations and runtime tool execution such as `/bin/sql`.
+
+Source code: [ECOM Agent (Python)](ecom-py)
+
 If you build your own sample agent, feel free to open an issue with a link to it. We will add it to the repository.
 
 ## References

@@ -8,8 +8,7 @@ Runnable Python sample for the `bitgn/sandbox` benchmark. This is a sandbox, so:
 ## Setup
 
 1. Export `OPENAI_API_KEY`
-2. Optionally export `BENCHMARK_HOST` if you are pointing at a non-default harness endpoint
-3. Run `uv sync`
+2. Run `uv sync`
 
 ## Commands
 
