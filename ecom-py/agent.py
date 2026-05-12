@@ -8,7 +8,6 @@ from annotated_types import Ge, Le, MaxLen, MinLen
 from bitgn.vm.ecom.ecom_connect import EcomRuntimeClientSync
 from bitgn.vm.ecom.ecom_pb2 import (
     AnswerRequest,
-    ContextRequest,
     DeleteRequest,
     ExecRequest,
     FindRequest,
@@ -79,10 +78,6 @@ class Req_Read(BaseModel):
     )
 
 
-class Req_Context(BaseModel):
-    tool: Literal["context"]
-
-
 class Req_Write(BaseModel):
     tool: Literal["write"]
     path: str
@@ -118,7 +113,6 @@ class NextStep(BaseModel):
     # that agents see in the production benchmark.
     function: Union[
         ReportTaskCompletion,
-        Req_Context,
         Req_Tree,
         Req_Find,
         Req_Search,
@@ -313,8 +307,6 @@ def _format_result(cmd: BaseModel, result) -> str:
 
 
 def dispatch(vm: EcomRuntimeClientSync, cmd: BaseModel):
-    if isinstance(cmd, Req_Context):
-        return vm.context(ContextRequest())
     if isinstance(cmd, Req_Tree):
         return vm.tree(TreeRequest(root=cmd.root, level=cmd.level))
     if isinstance(cmd, Req_Find):
@@ -372,7 +364,7 @@ def run_agent(model: str, harness_url: str, task_text: str) -> None:
     must = [
         Req_Tree(level=2, tool="tree", root="/"),
         Req_Read(path="/AGENTS.MD", tool="read"),
-        Req_Context(tool="context"),
+        Req_Exec(path="/bin/date", tool="exec"),
     ]
 
     for cmd in must:

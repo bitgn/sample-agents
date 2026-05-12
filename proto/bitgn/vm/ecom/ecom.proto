@@ -14,14 +14,6 @@ enum NodeKind {
   NODE_KIND_DIR = 2;
 }
 
-message ContextRequest {}
-
-message ContextResponse {
-  int64 unix_time = 1;
-  // RFC3339 UTC timestamp.
-  string time = 2;
-}
-
 message ReadRequest {
   string path = 1;
   // Prefix returned lines the same way as `cat --number`, using source file
@@ -202,7 +194,6 @@ message AnswerResponse {}
 // buf:lint:ignore SERVICE_SUFFIX
 // Service for the ECOM ecommerce OS runtime.
 service EcomRuntime {
-  rpc Context(ContextRequest) returns (ContextResponse);
   rpc Read(ReadRequest) returns (ReadResponse);
   rpc List(ListRequest) returns (ListResponse);
   rpc Tree(TreeRequest) returns (TreeResponse);

@@ -6,8 +6,8 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "annotated-types>=0.7.0",
-    "bitgn-api-connectrpc-python==0.10.0.1.20260508124000+434a5d933432",
-    "bitgn-api-protocolbuffers-python==34.1.0.1.20260508124000+434a5d933432",
+    "bitgn-api-connectrpc-python==0.10.0.1.20260512143020+6819c1efe998",
+    "bitgn-api-protocolbuffers-python==34.1.0.1.20260512143020+6819c1efe998",
     "openai>=2.26.0",
     "protobuf>=7.34.1",
     "pydantic>=2.12.5",
