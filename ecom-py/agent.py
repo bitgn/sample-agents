@@ -174,9 +174,7 @@ def _render_command(command: str, body: str) -> str:
 
 
 def _is_truncated(result) -> bool:
-    if getattr(result, "truncated", False):
-        return True
-    return "warning: result truncated" in getattr(result, "stderr", "").lower()
+    return getattr(result, "truncated", False)
 
 
 def _mark_truncated(result, body: str, hint: str) -> str:
@@ -189,16 +187,7 @@ def _mark_truncated(result, body: str, hint: str) -> str:
 
 
 def _write_request(cmd: Req_Write) -> WriteRequest:
-    kwargs = {
-        "path": cmd.path,
-        "content": cmd.content,
-    }
-    if "content_type" in WriteRequest.DESCRIPTOR.fields_by_name:
-        # AICODE-NOTE: Some published SDK pins may briefly lag the Go proto and
-        # still carry old WriteRequest field 2 as `content_type`; mirror the body
-        # there so current servers decode field 2 as `content`.
-        kwargs["content_type"] = cmd.content
-    return WriteRequest(**kwargs)
+    return WriteRequest(path=cmd.path, content=cmd.content)
 
 
 def _format_tree_response(cmd: Req_Tree, result) -> str:
@@ -282,11 +271,6 @@ def _format_exec_response(cmd: Req_Exec, result) -> str:
     if getattr(result, "exit_code", 0):
         body_parts.append(f"[exit {result.exit_code}]")
     body = "\n".join(body_parts) if body_parts else "."
-    body = _mark_truncated(
-        result,
-        body,
-        "exec output hit a limit; narrow the SQL query or add LIMIT/WHERE",
-    )
     return _render_command(command, body)
 
 
