@@ -2,6 +2,8 @@
 
 Runnable Python sample for the `bitgn/ecom1-dev` benchmark.
 
+Watch the leaderboard here - [https://bitgn.com/challenge/ecom](https://bitgn.com/challenge/ecom)
+
 ECOM is an ecommerce operations runtime. It exposes a file-shaped workspace plus runtime tools such as `/bin/sql` over the `bitgn.vm.ecom` API.
 
 You will need to provide your own `BITGN_API_KEY` and `OPENAI_API_KEY`, or swap the OpenAI client for a provider of your choice.
