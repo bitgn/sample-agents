@@ -349,6 +349,7 @@ def run_agent(model: str, harness_url: str, task_text: str) -> None:
         Req_Tree(level=2, tool="tree", root="/"),
         Req_Read(path="/AGENTS.MD", tool="read"),
         Req_Exec(path="/bin/date", tool="exec"),
+        Req_Exec(path="/bin/id", tool="exec"),
     ]
 
     for cmd in must:
