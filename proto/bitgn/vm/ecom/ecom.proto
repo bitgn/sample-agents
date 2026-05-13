@@ -124,11 +124,12 @@ message ExecRequest {
 
 message ExecResponse {
   int32 exit_code = 1;
-  // MIME type for stdout, e.g. text/plain, text/csv, application/json.
-  string content_type = 2;
+  // Deprecated: exec stdout/stderr are CLI-style text streams.
+  string content_type = 2 [deprecated = true];
   string stdout = 3;
   string stderr = 4;
-  bool truncated = 5;
+  // Deprecated: commands should report truncation in stdout when needed.
+  bool truncated = 5 [deprecated = true];
 }
 
 message WriteRequest {

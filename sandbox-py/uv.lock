@@ -25,38 +25,38 @@ wheels = [
 
 [[package]]
 name = "bitgn-api-connectrpc-python"
-version = "0.10.0.1.20260512145100+21e52f5c2aea"
+version = "0.10.0.1.20260513104829+ad059aae2b2a"
 source = { registry = "https://buf.build/gen/python" }
 dependencies = [
     { name = "bitgn-api-protocolbuffers-python" },
     { name = "connectrpc" },
 ]
 wheels = [
-    { url = "https://buf.build/gen/python/bitgn-api-connectrpc-python/bitgn_api_connectrpc_python-0.10.0.1.20260512145100+21e52f5c2aea-py3-none-any.whl", upload-time = "2026-05-12T14:51:00Z" },
+    { url = "https://buf.build/gen/python/bitgn-api-connectrpc-python/bitgn_api_connectrpc_python-0.10.0.1.20260513104829+ad059aae2b2a-py3-none-any.whl", upload-time = "2026-05-13T10:48:29Z" },
 ]
 
 [[package]]
 name = "bitgn-api-protocolbuffers-pyi"
-version = "34.1.0.1.20260512145100+21e52f5c2aea"
+version = "34.1.0.1.20260513104829+ad059aae2b2a"
 source = { registry = "https://buf.build/gen/python" }
 dependencies = [
     { name = "protobuf" },
     { name = "types-protobuf" },
 ]
 wheels = [
-    { url = "https://buf.build/gen/python/bitgn-api-protocolbuffers-pyi/bitgn_api_protocolbuffers_pyi-34.1.0.1.20260512145100+21e52f5c2aea-py3-none-any.whl", upload-time = "2026-05-12T14:51:00Z" },
+    { url = "https://buf.build/gen/python/bitgn-api-protocolbuffers-pyi/bitgn_api_protocolbuffers_pyi-34.1.0.1.20260513104829+ad059aae2b2a-py3-none-any.whl", upload-time = "2026-05-13T10:48:29Z" },
 ]
 
 [[package]]
 name = "bitgn-api-protocolbuffers-python"
-version = "34.1.0.1.20260512145100+21e52f5c2aea"
+version = "34.1.0.1.20260513104829+ad059aae2b2a"
 source = { registry = "https://buf.build/gen/python" }
 dependencies = [
     { name = "bitgn-api-protocolbuffers-pyi" },
     { name = "protobuf" },
 ]
 wheels = [
-    { url = "https://buf.build/gen/python/bitgn-api-protocolbuffers-python/bitgn_api_protocolbuffers_python-34.1.0.1.20260512145100+21e52f5c2aea-py3-none-any.whl", upload-time = "2026-05-12T14:51:00Z" },
+    { url = "https://buf.build/gen/python/bitgn-api-protocolbuffers-python/bitgn_api_protocolbuffers_python-34.1.0.1.20260513104829+ad059aae2b2a-py3-none-any.whl", upload-time = "2026-05-13T10:48:29Z" },
 ]
 
 [[package]]
@@ -73,8 +73,8 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bitgn-api-connectrpc-python", specifier = "==0.10.0.1.20260512145100+21e52f5c2aea" },
-    { name = "bitgn-api-protocolbuffers-python", specifier = "==34.1.0.1.20260512145100+21e52f5c2aea" },
+    { name = "bitgn-api-connectrpc-python", specifier = "==0.10.0.1.20260513104829+ad059aae2b2a" },
+    { name = "bitgn-api-protocolbuffers-python", specifier = "==34.1.0.1.20260513104829+ad059aae2b2a" },
     { name = "openai", specifier = ">=2.26.0" },
     { name = "protobuf", specifier = ">=7.34.1" },
     { name = "pydantic", specifier = ">=2.12.5" },
