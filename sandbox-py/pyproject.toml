@@ -5,8 +5,8 @@ description = "Runnable Python sample for the BitGN sandbox benchmark"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "bitgn-api-connectrpc-python==0.10.0.1.20260513164305+0d63b5002353",
-    "bitgn-api-protocolbuffers-python==34.1.0.1.20260513164305+0d63b5002353",
+    "bitgn-api-connectrpc-python==0.10.0.1.20260515140309+1f9ca1046f73",
+    "bitgn-api-protocolbuffers-python==34.1.0.1.20260515140309+1f9ca1046f73",
     "openai>=2.26.0",
     "pydantic>=2.12.5",
     # AICODE-NOTE: Keep the protobuf runtime floor aligned with the generated Buf

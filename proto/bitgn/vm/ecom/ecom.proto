@@ -14,14 +14,6 @@ enum NodeKind {
   NODE_KIND_DIR = 2;
 }
 
-message ContextRequest {}
-
-message ContextResponse {
-  int64 unix_time = 1;
-  // RFC3339 UTC timestamp.
-  string time = 2;
-}
-
 message ReadRequest {
   string path = 1;
   // Prefix returned lines the same way as `cat --number`, using source file
@@ -123,46 +115,32 @@ message ExecRequest {
 }
 
 message ExecResponse {
+  // AICODE-NOTE: Retired ECOM1 fields stay reserved instead of deprecated so
+  // generated SDKs do not keep legacy context/action affordances alive.
+  reserved 2, 5;
+  reserved "content_type", "truncated";
+
   int32 exit_code = 1;
-  // Deprecated: exec stdout/stderr are CLI-style text streams.
-  string content_type = 2 [deprecated = true];
   string stdout = 3;
   string stderr = 4;
-  // Deprecated: commands should report truncation in stdout when needed.
-  bool truncated = 5 [deprecated = true];
 }
 
 message WriteRequest {
+  reserved 3;
+  reserved "idempotency_key";
+
   string path = 1;
   string content = 2;
-  // Deprecated: FS writes no longer dispatch action handlers. Runtime actions
-  // should be exposed as `/bin/*` tools with idempotency in tool arguments or
-  // stdin payloads when needed.
-  string idempotency_key = 3 [deprecated = true];
   // Optional SHA-256 precondition over the current full rendered file content.
   // Empty means no precondition.
   string if_match_sha256 = 4;
 }
 
-enum ActionStatus {
-  // Deprecated: FS writes no longer dispatch action handlers. WriteResponse
-  // keeps action_status only for wire compatibility and returns NOT_ACTION.
-  ACTION_STATUS_UNSPECIFIED = 0;
-  ACTION_STATUS_NOT_ACTION = 1;
-  ACTION_STATUS_ACCEPTED = 2;
-  ACTION_STATUS_REJECTED = 3;
-}
-
 message WriteResponse {
+  reserved 2, 3, 4;
+  reserved "audit_path", "action_id", "action_status";
+
   string path = 1;
-  // Deprecated: FS writes no longer dispatch action handlers; use tool stdout
-  // and/or explicit audit files written by `/bin/*` tools.
-  string audit_path = 2 [deprecated = true];
-  // Deprecated: FS writes no longer dispatch action handlers.
-  string action_id = 3 [deprecated = true];
-  // Deprecated: FS writes no longer dispatch action handlers; ordinary writes
-  // return ACTION_STATUS_NOT_ACTION for backward compatibility.
-  ActionStatus action_status = 4 [deprecated = true];
 }
 
 message DeleteRequest {
@@ -176,19 +154,15 @@ message StatRequest {
 }
 
 message StatResponse {
+  reserved 5, 6, 7;
+  reserved "write_schema_content_type", "write_schema", "description";
+
   string path = 1;
   NodeKind kind = 2;
   // MIME type for the node's content, e.g. application/json, application/jsonl,
   // text/markdown, text/csv, text/plain.
   string content_type = 3;
   bool writable = 4;
-  // Deprecated: FS writes no longer dispatch action handlers, so write payload
-  // schemas are not exposed through Stat.
-  string write_schema_content_type = 5 [deprecated = true];
-  // Deprecated: FS writes no longer dispatch action handlers.
-  string write_schema = 6 [deprecated = true];
-  // Deprecated: action-file descriptions are no longer exposed through Stat.
-  string description = 7 [deprecated = true];
 }
 
 enum Outcome {
@@ -211,10 +185,6 @@ message AnswerResponse {}
 // buf:lint:ignore SERVICE_SUFFIX
 // Service for the ECOM ecommerce OS runtime.
 service EcomRuntime {
-  // Deprecated: use Exec with path "/bin/date" to get current context.
-  rpc Context(ContextRequest) returns (ContextResponse) {
-    option deprecated = true;
-  }
   rpc Read(ReadRequest) returns (ReadResponse);
   rpc List(ListRequest) returns (ListResponse);
   rpc Tree(TreeRequest) returns (TreeResponse);
