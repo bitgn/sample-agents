@@ -28,7 +28,7 @@ enum EvalPolicy {
 
 // Pulls information about current benchmark, including task samples. Id is in format org/bench
 message GetBenchmarkRequest {
-  // e.g. bitgn/sandbox
+  // e.g. bitgn/ecom1-dev
   string benchmark_id = 1;
 }
 
@@ -71,7 +71,7 @@ message GetBenchmarkResponse {
 
 message StartTrialRequest {
   // Prepared trial identifier, typically created as part of a run.
-  // Playground sessions already come back ready to use and do not need this call.
+  // Trial identifiers are allocated by StartRun.
   string trial_id = 1;
 }
 
@@ -106,12 +106,14 @@ message StartTrialResponse {
 }
 
 message StartPlaygroundResponse {
+  option deprecated = true;
+
   string trial_id = 1;
   string benchmark_id = 2;
   // e.g. t01
   string task_id = 3;
   string instruction = 4;
-  // Same agent runtime endpoint shape as StartTrialResponse, but for a standalone ad-hoc trial.
+  // Deprecated: StartPlayground always returns an error. Use StartRun and StartTrial.
   string harness_url = 5;
 }
 
@@ -287,9 +289,10 @@ message SubmitRunResponse {
 }
 
 
-// This request can be anonymous
 message StartPlaygroundRequest {
-  // e.g. bitgn/sandbox
+  option deprecated = true;
+
+  // Deprecated: sandbox/playground mode is no longer supported. Use StartRun and StartTrial.
   string benchmark_id = 1;
   // task id in this benchmark - e.g. t01
   string task_id = 2;
@@ -307,8 +310,10 @@ service HarnessService {
   rpc GetRun(GetRunRequest) returns (GetRunResponse);
   rpc SubmitRun(SubmitRunRequest) returns (SubmitRunResponse);
 
-  // Start an isolated ad-hoc trial that is not attached to a leaderboard run.
-  rpc StartPlayground(StartPlaygroundRequest) returns (StartPlaygroundResponse);
+  // Deprecated: sandbox/playground mode is no longer supported. Use StartRun and StartTrial.
+  rpc StartPlayground(StartPlaygroundRequest) returns (StartPlaygroundResponse) {
+    option deprecated = true;
+  }
   // Start a prepared trial whose seed and metadata were fixed earlier by the platform (by starting a run).
   rpc StartTrial(StartTrialRequest) returns (StartTrialResponse);
   // Get current state of the trial
