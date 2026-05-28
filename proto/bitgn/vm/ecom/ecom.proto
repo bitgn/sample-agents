@@ -14,6 +14,16 @@ enum NodeKind {
   NODE_KIND_DIR = 2;
 }
 
+// AICODE-NOTE: These retired context messages are descriptor compatibility for
+// historical ECOM trial logs. Keep them registered, but do not restore the RPC.
+message ContextRequest {}
+
+message ContextResponse {
+  int64 unix_time = 1;
+  // RFC3339 UTC timestamp.
+  string time = 2;
+}
+
 message ReadRequest {
   string path = 1;
   // Prefix returned lines the same way as `cat --number`, using source file

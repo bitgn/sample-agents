@@ -10,6 +10,7 @@ from bitgn.harness_pb2 import (
     StartTrialRequest,
     StatusRequest,
     SubmitRunRequest,
+    StartRunResponse,
 )
 from connectrpc.errors import ConnectError
 
@@ -52,6 +53,9 @@ def main() -> None:
             )
         )
 
+        filtered_tasks = []
+
+
         try:
             for trial_id in run.trial_ids:
                 trial = client.start_trial(
@@ -60,6 +64,7 @@ def main() -> None:
                 if task_filter and trial.task_id not in task_filter:
                     continue
 
+                filtered_tasks.append(trial.task_id)
                 print(f"{'=' * 30} Starting task: {trial.task_id} {'=' * 30}")
                 print(f"{CLI_BLUE}{trial.instruction}{CLI_CLR}\n{'-' * 80}")
                 try:
@@ -78,7 +83,8 @@ def main() -> None:
                 else:
                     print(f"\n{CLI_BLUE}Score: not available{CLI_CLR}\n")
         finally:
-            client.submit_run(SubmitRunRequest(run_id=run.run_id, force=True))
+            result = client.submit_run(SubmitRunRequest(run_id=run.run_id, force=True))
+
 
     except ConnectError as exc:
         print(f"{exc.code}: {exc.message}")

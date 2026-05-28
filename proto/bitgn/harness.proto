@@ -18,11 +18,11 @@ message StatusResponse {
 
 enum EvalPolicy {
   EVAL_POLICY_UNSPECIFIED = 0;
-  // in Blind mode we hide hints and defer evaluations until later. This means that leaderboards will be populated only when the competition ends and benchmark goes open
+  // in Blind mode we hide hints. Runs that start and end while benchmark is in Blind mode - will have their results sealed until the reveal
   EVAL_POLICY_BLIND = 1;
-  // in Open mode we execute evaluations at the end of the trial, also hints are visible
+  // in Open mode we execute evaluations at the end of the run, also hints are visible
   EVAL_POLICY_OPEN = 2;
-  // private runs, not part of leaderboards and can't be scored
+  // private runs, not part of leaderboards.
   EVAL_POLICY_PRIVATE = 3;
 }
 
@@ -128,13 +128,15 @@ message EndTrialRequest {
 message EndTrialResponse {
   string trial_id = 1;
   TrialState state =2;
-  // AICODE-NOTE: Keep `score_available` alongside the legacy optional scalar because raw generated
-  // SDKs in some languages expose absent optional floats as `0.0`. Public clients need a typed
-  // presence bit without forcing every caller onto protobuf reflection helpers like `HasField`.
-  bool score_available = 5;
-  // score will be missing in blind benchmarks (until they are open)
-  optional float score = 3;
-  repeated string score_detail = 4;
+
+  // Deprecated: EndTrial is lifecycle-only. Scores are produced by SubmitRun.
+  optional float score = 3 [deprecated = true];
+
+  // Deprecated: EndTrial is lifecycle-only. Score details are produced by SubmitRun.
+  repeated string score_detail = 4 [deprecated = true];
+
+  // Deprecated: EndTrial no longer grades. Use SubmitRunResponse scores.
+  bool score_available = 5 [deprecated = true];
 }
 
 message GetTrialRequest{
@@ -282,10 +284,40 @@ message SubmitRunRequest {
   bool force = 2;
 }
 
+message ScoredTrialResult {
+  string trial_id = 1;
+  string task_id = 2;
+
+  // Sequential number within the run.
+  int32 num = 3;
+
+  TrialState state = 4;
+
+  // Present only when the submitted run's result is public at submit time.
+  optional float score = 5;
+
+  // Mirrors score presence for SDKs that expose absent optional floats as 0.0.
+  bool score_available = 6;
+
+  // Present only when score_available is true.
+  repeated string score_detail = 7;
+
+  // Set if the trial ended in harness/runtime error rather than normal grading.
+  string error = 8;
+}
+
 message SubmitRunResponse {
   string run_id = 1;
-  // will be submitted for blind benchmarks and evaluated for open
+  // EVALUATED when scores are public at submit time.
+  // PENDING_EVAL for sealed blind submissions whose scores were evaluated but withheld.
   RunState state = 2;
+  // Present only when the submitted run's aggregate score is public at submit time.
+  optional float score = 3;
+
+  bool score_available = 4;
+
+  // Per-trial public submit results. Returned if run is not sealed
+  repeated ScoredTrialResult trials = 5;
 }
 
 
@@ -308,16 +340,17 @@ service HarnessService {
   // Starting a leaderboard run will prepopulate trial parameters from the benchmark
   rpc StartRun(StartRunRequest) returns (StartRunResponse);
   rpc GetRun(GetRunRequest) returns (GetRunResponse);
+  // submit run. This will trigger evaluation of trials within the open benchmarks
   rpc SubmitRun(SubmitRunRequest) returns (SubmitRunResponse);
 
   // Deprecated: sandbox/playground mode is no longer supported. Use StartRun and StartTrial.
   rpc StartPlayground(StartPlaygroundRequest) returns (StartPlaygroundResponse) {
     option deprecated = true;
   }
-  // Start a prepared trial whose seed and metadata were fixed earlier by the platform (by starting a run).
+  // Start a prepared trial whose seed and metadata were fixed earlier by the platform (by starting a run). This also starts the timer
   rpc StartTrial(StartTrialRequest) returns (StartTrialResponse);
   // Get current state of the trial
   rpc GetTrial(GetTrialRequest) returns (GetTrialResponse);
-  // End trial. For Open benchmarks this will trigger evaluation
+  // End trial. Evaluation will be done at the end of the Run
   rpc EndTrial(EndTrialRequest) returns (EndTrialResponse);
 }
