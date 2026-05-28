@@ -9,7 +9,7 @@ dependencies = [
     "bitgn-api-connectrpc-python==0.10.0.1.20260528115439+d3855da61ce2",
     "bitgn-api-protocolbuffers-python==35.0.0.1.20260528115439+d3855da61ce2",
     "openai>=2.26.0",
-    "protobuf>=7.34.1",
+    "protobuf>=7.35.0",
     "pydantic>=2.12.5",
 ]
 
